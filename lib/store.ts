@@ -11,7 +11,7 @@ import {
   getAllMemory, saveMemoryItem, deleteMemoryItem, clearAllMemory,
   loadSettings, saveSettings, DEFAULT_SETTINGS
 } from '@/lib/db';
-import { getDefaultModel } from '@/lib/ai-providers';
+import { getDefaultModel } from '@/lib/ai-config';
 
 function genId(): string {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -206,8 +206,8 @@ export const useAppStore = create<AppState>()(
       const startTime = Date.now();
 
       try {
-        const endpoint = state.selectedProvider === 'gemini' ? '/api/gemini' : '/api/chat';
-        const response = await fetch(endpoint, {
+        // Use unified AI router endpoint for all providers
+        const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

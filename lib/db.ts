@@ -85,7 +85,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: 'es',
   fontSize: 'medium',
   primaryColor: '#7C3AED',
-  defaultModel: 'llama-3.3-70b-versatile',
+  defaultModel: 'llama-3.3-70b-versatile' as any, // Use Groq default
   defaultProvider: 'groq',
   userName: 'Usuario',
   voice: {
