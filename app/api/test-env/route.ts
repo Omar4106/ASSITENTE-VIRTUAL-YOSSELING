@@ -1,31 +1,22 @@
 import { NextResponse } from 'next/server';
-import { getEnvVar, checkEnvVars } from '@/lib/env';
-import { FALLBACK_ORDER } from '@/lib/ai-config';
+import { getEnvVar } from '@/lib/env';
 
 export const runtime = 'nodejs';
 
+const KEYS = ['GROQ_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY', 'CEREBRAS_API_KEY'];
+
 export async function GET() {
-  const envKeys = ['GROQ_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY', 'CEREBRAS_API_KEY'];
-  const status = checkEnvVars(envKeys);
-
-  console.log('[Yosseling] Environment check:');
-  for (const [key, present] of Object.entries(status)) {
-    console.log(`  ${key}: ${present ? 'OK' : 'MISSING'}`);
-  }
-
-  const previews: Record<string, string> = {};
-  for (const key of envKeys) {
+  const status: Record<string, boolean> = {};
+  for (const key of KEYS) {
     const val = getEnvVar(key);
-    previews[key] = val ? `${val.slice(0, 8)}***` : 'NOT SET';
+    status[key] = Boolean(val);
+    if (!val) console.warn(`[Yosseling] Missing env var: ${key}`);
+    else console.log(`[Yosseling] Found env var: ${key} = ${val.slice(0, 8)}...`);
   }
-
   return NextResponse.json({
-    providers: FALLBACK_ORDER.map(p => ({
-      name: p,
-      configured: status[`${p.toUpperCase()}_API_KEY`] ?? false,
-    })),
-    keys: status,
-    previews,
-    fallbackOrder: FALLBACK_ORDER,
+    status,
+    node_env: process.env.NODE_ENV,
+    configured: Object.values(status).filter(Boolean).length,
+    total: KEYS.length,
   });
 }

@@ -4,16 +4,20 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Settings, Palette, Volume2, Languages, Type, Download,
-  Upload, Trash2, User, Zap, Brain, Check
+  Upload, Trash2, User, Zap, Brain, Check, Heart, Info,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-import { MODELS, PROVIDERS } from '@/lib/ai-providers';
-import type { ModelId, Provider } from '@/types';
+import { MODELS, PROVIDERS, PROVIDER_ORDER } from '@/lib/ai-providers';
+import { YOSSELING_IDENTITY } from '@/lib/personality';
+import type { PersonalityStyle } from '@/types';
 import { cn } from '@/lib/utils';
+import { useEffect } from 'react';
 
 export function SettingsPanel() {
-  const { settings, updateSettings, clearAllChats, clearMemory, chats, importChats: storeImportChats } = useAppStore();
+  const { settings, updateSettings, clearAllChats, clearMemory, chats, selectedProvider, selectedModel, importChats: storeImportChats } = useAppStore();
   const [saved, setSaved] = useState(false);
+  // no-op suppressor for unused import warning
+  useEffect(() => {}, []);
 
   const save = (partial: Parameters<typeof updateSettings>[0]) => {
     updateSettings(partial);
@@ -173,21 +177,62 @@ export function SettingsPanel() {
           </div>
         </Section>
 
+        {/* Personality */}
+        <Section icon={<Heart size={15} />} title="Personalidad de Yosseling">
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { id: 'profesional', label: 'Profesional' },
+              { id: 'amigable',    label: 'Amigable' },
+              { id: 'creativa',    label: 'Creativa' },
+              { id: 'tecnica',     label: 'Técnica' },
+              { id: 'divertida',   label: 'Divertida' },
+              { id: 'formal',      label: 'Formal' },
+            ] as { id: PersonalityStyle; label: string }[]).map(p => (
+              <button
+                key={p.id}
+                onClick={() => save({ personality: p.id })}
+                className={cn(
+                  'py-2 rounded-lg text-xs font-medium border transition-all',
+                  settings.personality === p.id
+                    ? 'border-purple-500 bg-purple-500/10 text-purple-300'
+                    : 'border-white/[0.06] text-[#B3B3B3] hover:border-white/20'
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </Section>
+
         {/* Default model */}
         <Section icon={<Zap size={15} />} title="Modelo predeterminado">
           <select
             value={settings.defaultModel}
-            onChange={e => save({ defaultModel: e.target.value as ModelId })}
+            onChange={e => save({ defaultModel: e.target.value })}
             className="w-full bg-[#171923] border border-white/[0.06] text-white text-xs rounded-lg px-3 py-2 outline-none focus:border-purple-500/50"
           >
-            {Object.entries(PROVIDERS).map(([prov, info]) => (
-              <optgroup key={prov} label={info.name}>
+            {PROVIDER_ORDER.filter(p => p !== 'auto').map(prov => (
+              <optgroup key={prov} label={PROVIDERS[prov].name}>
                 {MODELS.filter(m => m.provider === prov).map(m => (
                   <option key={m.id} value={m.id}>{m.name}</option>
                 ))}
               </optgroup>
             ))}
           </select>
+        </Section>
+
+        {/* Memory settings */}
+        <Section icon={<Brain size={15} />} title="Memoria">
+          <div className="space-y-2">
+            <label className="flex items-center justify-between cursor-pointer py-1">
+              <span className="text-xs text-[#B3B3B3]">Memoria activada</span>
+              <input type="checkbox" checked={settings.memoryEnabled} onChange={e => save({ memoryEnabled: e.target.checked })} className="accent-purple-500 w-4 h-4" />
+            </label>
+            <label className="flex items-center justify-between cursor-pointer py-1">
+              <span className="text-xs text-[#B3B3B3]">Detección automática</span>
+              <input type="checkbox" checked={settings.memoryAutoSave} onChange={e => save({ memoryAutoSave: e.target.checked })} className="accent-purple-500 w-4 h-4" />
+            </label>
+          </div>
         </Section>
 
         {/* Data */}
@@ -211,6 +256,27 @@ export function SettingsPanel() {
             >
               <Upload size={13} /> Importar chats
             </button>
+          </div>
+        </Section>
+
+        {/* Acerca de Yosseling */}
+        <Section icon={<Info size={15} />} title="Acerca de Yosseling">
+          <div className="bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/20 rounded-xl p-4 space-y-2">
+            <div className="flex items-center gap-2 mb-3">
+              <Heart size={14} className="text-pink-400" />
+              <span className="text-sm font-bold text-white">{YOSSELING_IDENTITY.name}</span>
+              <span className="ml-auto text-[10px] text-[#B3B3B3] bg-white/5 px-2 py-0.5 rounded-full">v{YOSSELING_IDENTITY.version}</span>
+            </div>
+            <InfoRow label="Nombre" value={YOSSELING_IDENTITY.name} />
+            <InfoRow label="Versión" value={YOSSELING_IDENTITY.version} />
+            <InfoRow label="Creado por" value={YOSSELING_IDENTITY.creator} />
+            <InfoRow label="Fecha" value={YOSSELING_IDENTITY.createdAt} />
+            <div className="pt-2 border-t border-white/[0.06]">
+              <InfoRow label="Proveedor activo" value={PROVIDERS[selectedProvider]?.name ?? selectedProvider} />
+              <InfoRow label="Modelo activo" value={selectedModel} />
+              <InfoRow label="Personalidad" value={settings.personality} />
+            </div>
+            <p className="text-[10px] text-[#B3B3B3]/60 pt-1 italic">{YOSSELING_IDENTITY.nameOrigin}</p>
           </div>
         </Section>
 
@@ -273,15 +339,19 @@ function SliderSetting({ label, value, min, max, step, onChange }: {
         <label className="text-xs text-[#B3B3B3]">{label}</label>
         <span className="text-xs text-white">{value.toFixed(1)}</span>
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
+      <input type="range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(parseFloat(e.target.value))}
         className="w-full accent-purple-500"
       />
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-xs py-0.5">
+      <span className="text-[#B3B3B3]">{label}</span>
+      <span className="text-white font-medium text-right max-w-[55%] truncate">{value}</span>
     </div>
   );
 }
