@@ -32,7 +32,7 @@ export function ToolsPanel() {
     aiCenterData, selectedProvider, selectedModel,
   } = useAppStore();
   const activeChat = useActiveChat();
-  const { speak, stopSpeaking, pauseSpeaking, resumeSpeaking, startListening, stopListening, voiceState } = useVoice();
+  const { speak, stopSpeaking, pauseSpeaking, resumeSpeaking, startListening, voiceState } = useVoice();
   const [activeSection, setActiveSection] = useState<string | null>('tools');
 
   const handleTool = (action: string) => {
@@ -50,6 +50,7 @@ export function ToolsPanel() {
       return;
     }
     if (action === 'recognize_voice') {
+      if (isSpeaking) stopSpeaking();
       startListening(text => sendMessage(text));
       return;
     }

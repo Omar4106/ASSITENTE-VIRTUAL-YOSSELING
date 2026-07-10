@@ -11,13 +11,10 @@ import { MODELS, PROVIDERS, PROVIDER_ORDER } from '@/lib/ai-providers';
 import { YOSSELING_IDENTITY } from '@/lib/personality';
 import type { PersonalityStyle } from '@/types';
 import { cn } from '@/lib/utils';
-import { useEffect } from 'react';
 
 export function SettingsPanel() {
   const { settings, updateSettings, clearAllChats, clearMemory, chats, selectedProvider, selectedModel, importChats: storeImportChats } = useAppStore();
   const [saved, setSaved] = useState(false);
-  // no-op suppressor for unused import warning
-  useEffect(() => {}, []);
 
   const save = (partial: Parameters<typeof updateSettings>[0]) => {
     updateSettings(partial);
