@@ -11,7 +11,7 @@ let dbPromise: Promise<IDBPDatabase> | null = null;
 function getDB() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion) {
+      upgrade(db, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           if (!db.objectStoreNames.contains('chats')) {
             const s = db.createObjectStore('chats', { keyPath: 'id' });
@@ -28,8 +28,7 @@ function getDB() {
         }
         // v2: extra indexes for enhanced MemoryItem
         if (oldVersion < 2 && db.objectStoreNames.contains('memory')) {
-          const tx = db.transaction('memory', 'versionchange');
-          const store = tx.objectStore('memory');
+          const store = transaction.objectStore('memory');
           if (!store.indexNames.contains('importance')) store.createIndex('importance', 'importance');
           if (!store.indexNames.contains('type')) store.createIndex('type', 'type');
         }
