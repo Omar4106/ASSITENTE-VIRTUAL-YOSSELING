@@ -13,6 +13,7 @@ import {
   FALLBACK_ORDER,
   PROVIDER_CONFIG,
   getProviderDefaultModel,
+  getProviderFromModel,
   getFriendlyError,
   type Provider,
 } from '@/lib/ai-config';
@@ -296,6 +297,9 @@ export async function POST(req: NextRequest) {
 
 function shouldFallback(errorMsg: string): boolean {
   const lower = errorMsg.toLowerCase();
+  // Fallback on transient/recoverable errors; do NOT fallback on auth errors
+  // (invalid key = configuration issue, not a transient failure)
+  if (lower.includes('invalid') && lower.includes('key')) return false;
   return (
     lower.includes('quota') ||
     lower.includes('rate') ||
@@ -305,17 +309,11 @@ function shouldFallback(errorMsg: string): boolean {
     lower.includes('not found') ||
     lower.includes('no configurada') ||
     lower.includes('connection') ||
-    lower.includes('network')
+    lower.includes('network') ||
+    lower.includes('500') ||
+    lower.includes('502') ||
+    lower.includes('503')
   );
-}
-
-function getProviderFromModel(modelId: string): Provider | null {
-  for (const [provider, config] of Object.entries(PROVIDER_CONFIG)) {
-    if (config.models.some(m => m.id === modelId)) {
-      return provider as Provider;
-    }
-  }
-  return null;
 }
 
 function streamError(msg: string): NextResponse {

@@ -1,0 +1,666 @@
+================================================================================
+  YOSSELING - DOCUMENTACION COMPLETA DEL CODIGO
+  Asistente Virtual Inteligente Multi-Proveedor
+  Fecha: 2026-07-09
+================================================================================
+
+INDICE
+------
+1.  Vision General
+2.  Stack Tecnologico
+3.  Estructura del Proyecto
+4.  Configuracion (next.config.js, tsconfig.json, tailwind.config.ts)
+5.  Sistema de IA (lib/ai-config.ts, lib/ai-providers.ts)
+6.  API Routes (app/api/chat/route.ts, app/api/test-env/route.ts)
+7.  Store Global (lib/store.ts)
+8.  Base de Datos Local (lib/db.ts)
+9.  Hooks (useVoice, useFileUpload)
+10. Componentes Principales
+    - Layout y Pagina Principal (app/page.tsx, app/layout.tsx)
+    - Header y ModelSelector
+    - Sidebar
+    - ChatArea, MessageBubble, InputBar
+    - ToolsPanel
+    - Paneles (Memory, Settings, Help)
+    - MobileNav
+11. Tipos (types/index.ts)
+12. Bugs Corregidos
+13. Guia de Mantenimiento
+
+
+================================================================================
+1. VISION GENERAL
+================================================================================
+
+Yosseling es una aplicacion de chat conversacional construida con Next.js 13
+que actua como un asistente virtual inteligente. Su caracteristica principal
+es la capacidad de enrutamiento entre multiples proveedores de IA (OpenAI,
+Groq, OpenRouter, Gemini, Cerebras) con un sistema de fallback automatico:
+si un proveedor falla, intenta automaticamente con el siguiente en la cadena.
+
+La interfaz esta inspirada en aplicaciones modernas como ChatGPT y Claude,
+con un tema oscuro premium, animaciones fluidas con Framer Motion, y un
+sistema de panel lateral con herramientas integradas.
+
+Caracteristicas principales:
+- Chat con streaming en tiempo real (Server-Sent Events)
+- 5 proveedores de IA con 18+ modelos
+- Fallback automatico entre proveedores
+- Persistencia local con IndexedDB (chats, memoria, configuracion)
+- Reconocimiento de voz (Web Speech API)
+- Sintesis de voz (SpeechSynthesis API)
+- Carga de archivos (imagenes, PDFs, documentos)
+- Renderizado de Markdown con resaltado de sintaxis
+- Sistema de memoria persistente
+- Exportacion/importacion de conversaciones
+- Diseno responsivo (mobile + desktop)
+
+
+================================================================================
+2. STACK TECNOLOGICO
+================================================================================
+
+Frontend:
+- Next.js 13.5.1 (App Router)
+- React 18.2.0
+- TypeScript 5.2.2
+- Tailwind CSS 3.3.3
+- Framer Motion 12.x (animaciones)
+- Zustand 5.x (estado global)
+- Lucide React (iconos)
+- React Markdown + remark-gfm (renderizado de markdown)
+- React Syntax Highlighter (resaltado de codigo)
+
+Backend:
+- Next.js API Routes (App Router)
+- Server-Sent Events (SSE) para streaming
+- IndexedDB (idb) para almacenamiento local
+
+Proveedores de IA:
+- OpenAI (GPT-4o, GPT-4o-mini, GPT-4 Turbo)
+- Groq (Llama 3.3 70B, DeepSeek R1, Mixtral 8x7B, Gemma 2, Qwen QwQ)
+- OpenRouter (Qwen3 Coder, GPT OSS 120B, Claude 3.5/3, Gemini 2.5 Pro, Llama 3.3)
+- Gemini (Gemini 2.5 Flash, Gemini 2.5 Pro)
+- Cerebras (Llama 3.3 70B, Llama 3.1 8B)
+
+
+================================================================================
+3. ESTRUCTURA DEL PROYECTO
+================================================================================
+
+yosseling/
+|
+|-- app/
+|   |-- api/
+|   |   |-- chat/route.ts        -> Endpoint principal de chat con streaming SSE
+|   |   |-- test-env/route.ts    -> Diagnostico de variables de entorno
+|   |-- globals.css              -> Estilos globales, tema, animaciones
+|   |-- layout.tsx               -> Layout raiz (fuente, metadata, tema)
+|   |-- page.tsx                 -> Pagina principal (compositor de la UI)
+|
+|-- components/
+|   |-- chat/
+|   |   |-- ChatArea.tsx         -> Area de mensajes + pantalla de bienvenida
+|   |   |-- InputBar.tsx         -> Barra de entrada con toolbar
+|   |   |-- MessageBubble.tsx    -> Burbuja de mensaje con markdown y acciones
+|   |-- header/
+|   |   |-- Header.tsx           -> Barra superior con selectores de proveedor
+|   |   |-- ModelSelector.tsx    -> Dropdown de seleccion de modelo/proveedor
+|   |-- mobile/
+|   |   |-- MobileNav.tsx        -> Navegacion inferior para mobile
+|   |-- panels/
+|   |   |-- HelpPanel.tsx        -> Panel de ayuda y atajos
+|   |   |-- MemoryPanel.tsx      -> Panel de gestion de memoria
+|   |   |-- SettingsPanel.tsx    -> Panel de configuracion y exportacion
+|   |-- sidebar/
+|   |   |-- Sidebar.tsx          -> Barra lateral con lista de chats y nav
+|   |-- tools/
+|   |   |-- ToolsPanel.tsx       -> Panel derecho de herramientas y ajustes
+|   |-- ui/                      -> Componentes shadcn/ui (40+ componentes)
+|
+|-- hooks/
+|   |-- useVoice.ts              -> Hook de voz (TTS + STT)
+|   |-- useFileUpload.ts         -> Hook de carga de archivos
+|   |-- use-toast.ts             -> Hook de notificaciones toast
+|
+|-- lib/
+|   |-- ai-config.ts             -> Configuracion centralizada de IA (SSOT)
+|   |-- ai-providers.ts          -> Wrapper de compatibilidad legacy
+|   |-- db.ts                    -> Capa de IndexedDB (chats, memoria, settings)
+|   |-- env.ts                   -> Utilidad de lectura de variables de entorno
+|   |-- store.ts                 -> Store global de Zustand
+|   |-- utils.ts                 -> Utilidad cn() para clases Tailwind
+|
+|-- types/
+|   |-- index.ts                 -> Tipos compartidos de toda la app
+|
+|-- public/
+|   |-- assets/images/           -> Logos de Yosseling
+
+
+================================================================================
+4. CONFIGURACION
+================================================================================
+
+next.config.js:
+- Carga .env y .env.local manualmente al inicio (necesario en entornos
+  donde el dev server no recarga variables de entorno).
+- eslint.ignoreDuringBuilds: true (no bloquea build por lint)
+- images.unoptimized: true (sin optimizacion de imagenes de Next.js)
+
+tsconfig.json:
+- target: es5
+- strict: true
+- moduleResolution: bundler
+- Path alias: "@/*" -> "./*" (importacion con @/lib/..., @/components/...)
+
+tailwind.config.ts:
+- Configuracion estandar de shadcn/ui
+- darkMode: "class"
+- Content: app/, components/
+
+.env:
+- GROQ_API_KEY
+- OPENAI_API_KEY
+- GEMINI_API_KEY
+- OPENROUTER_API_KEY
+- CEREBRAS_API_KEY
+
+
+================================================================================
+5. SISTEMA DE IA
+================================================================================
+
+lib/ai-config.ts (Single Source of Truth):
+------------------------------------------
+Este archivo es la UNICA fuente de verdad para toda la configuracion de IA.
+
+Exporta:
+- AI_SETTINGS: temperatura (0.7), maxTokens (4096), stream (true), timeout (60s)
+- SYSTEM_PROMPT: prompt del sistema que define la personalidad de Yosseling
+- FALLBACK_ORDER: ['openai', 'groq', 'openrouter', 'gemini', 'cerebras']
+  Orden de prioridad para el fallback automatico.
+- PROVIDER_CONFIG: Record<Provider, ProviderConfigType>
+  Cada proveedor tiene: name, color, apiBaseUrl, envKey, models[]
+- ALL_PROVIDERS: array de todos los proveedores
+- ALL_MODELS: array de todos los modelos con su proveedor
+- MODELS_BY_PROVIDER: modelos agrupados por proveedor
+- PROVIDER_INFO: nombre y color por proveedor
+- getDefaultModel(): devuelve el modelo por defecto (Groq Llama 3.3 70B)
+- getProviderDefaultModel(provider): modelo por defecto de un proveedor
+- getModelInfo(modelId): info completa de un modelo
+- getProviderFromModel(modelId): proveedor al que pertenece un modelo
+- getNextFallback(currentProvider): siguiente proveedor en la cadena
+- FRIENDLY_ERRORS: mensajes de error traducidos al espanol
+- getFriendlyError(errorText): mapea error tecnico a mensaje amigable
+
+lib/ai-providers.ts (Legacy Wrapper):
+------------------------------------
+Existe solo para compatibilidad hacia atras. Re-exporta todo desde
+ai-config.ts en el formato antiguo (MODELS, PROVIDERS, PROVIDER_ORDER).
+Los componentes nuevos deberian importar directamente de ai-config.ts.
+
+Flujo de fallback:
+1. El usuario envia un mensaje con un proveedor seleccionado.
+2. La API route intenta el proveedor seleccionado.
+3. Si falla con un error recuperable (quota, rate limit, timeout, etc.),
+   shouldFallback() devuelve true y se intenta con el siguiente proveedor.
+4. Si el error es de autenticacion (invalid key), NO se hace fallback
+   (es un problema de configuracion, no transitorio).
+5. Se notifica al usuario cuando se usa un proveedor alternativo.
+
+
+================================================================================
+6. API ROUTES
+================================================================================
+
+app/api/chat/route.ts:
+----------------------
+Endpoint principal: POST /api/chat
+
+Request body:
+{
+  messages: Message[],       // historial de mensajes
+  model: string,            // ID del modelo a usar
+  provider: Provider,        // proveedor seleccionado
+  systemPrompt?: string,     // prompt del sistema opcional
+  settings?: { temperature, maxTokens }
+}
+
+Flujo:
+1. Extrae mensajes, modelo y proveedor del body.
+2. Si no se especifica proveedor, lo infiere del modelo con getProviderFromModel().
+3. Obtiene la API key desde getEnvVar(proveedor.envKey).
+4. Si no hay API key, intenta fallback al siguiente proveedor.
+5. Construye el payload segun el proveedor:
+   - OpenAI/Groq/OpenRouter/Cerebras: formato OpenAI-compatible
+     POST {apiBaseUrl}/chat/completions
+     Body: { model, messages, temperature, max_tokens, stream: true }
+     Headers: Authorization: Bearer {apiKey}
+   - Gemini: formato nativo de Google
+     POST {apiBaseUrl}/models/{model}:streamGenerateContent
+     Body: { contents, systemInstruction, generationConfig }
+     Headers: x-goog-api-key
+6. Lee el stream SSE y lo retransmite al cliente.
+7. Si el stream falla, intenta el siguiente proveedor (fallback).
+
+Respuesta: Server-Sent Events (SSE)
+- data: { content: "token" }     -> token de streaming
+- data: [DONE]                    -> fin del stream
+- data: { error: "msg" }          -> error
+- data: { fallback: true, ... }   -> se uso un proveedor alternativo
+
+app/api/test-env/route.ts:
+--------------------------
+Endpoint de diagnostico: GET /api/test-env
+
+Devuelve el estado de cada API key (configurada o no) sin exponer los valores.
+Util para depurar problemas de configuracion.
+
+
+================================================================================
+7. STORE GLOBAL (lib/store.ts)
+================================================================================
+
+Estado global con Zustand + subscribeWithSelector.
+
+Estado:
+- chats: Chat[]                    -> lista de conversaciones
+- activeChatId: string | null      -> chat activo
+- isStreaming: boolean             -> hay un stream en curso
+- abortController: AbortController | null -> para cancelar stream
+- sidebarOpen: boolean             -> sidebar visible
+- rightPanelOpen: boolean          -> panel derecho visible
+- sidebarView: SidebarView         -> vista activa del sidebar
+- rightPanelView: RightPanelView   -> vista del panel derecho
+- selectedModel: ModelId           -> modelo seleccionado
+- selectedProvider: Provider       -> proveedor seleccionado
+- settings: AppSettings            -> configuracion del usuario
+- memory: MemoryItem[]             -> items de memoria
+- isSpeaking: boolean             -> TTS activo
+- isListening: boolean            -> STT activo
+- pendingFiles: AttachedFile[]    -> archivos pendientes de enviar
+- searchQuery: string              -> busqueda de chats
+
+Acciones principales:
+- initStore(): carga chats, memoria y settings desde IndexedDB
+- createNewChat(): crea un chat nuevo con modelo/proveedor actuales
+- setActiveChat(id): activa un chat existente
+- deleteChat(id): elimina un chat
+- clearAllChats(): borra todos los chats
+- importChats(chats): importa conversaciones desde JSON
+- sendMessage(content, files?): envia mensaje y maneja streaming SSE
+- stopStreaming(): cancela el stream en curso
+- editMessage(chatId, messageId, content): edita un mensaje
+- deleteMessage(chatId, messageId): elimina un mensaje
+- regenerateResponse(chatId, messageId): regenera respuesta del asistente
+- renameChat(id, title): renombra un chat
+- pinChat(id): fija/desfija un chat
+- favoriteChat(id): marca/desmarca favorito
+- setSelectedModel(model, provider): cambia modelo y proveedor
+- updateSettings(partial): actualiza configuracion
+- loadMemory(): carga memoria desde IndexedDB
+- addMemoryItem(key, value, category): agrega item de memoria
+- updateMemoryItem(id, key, value): actualiza item
+- deleteMemoryItem(id): elimina item
+- clearMemory(): borra toda la memoria
+- addPendingFile(file): agrega archivo pendiente
+- removePendingFile(id): quita archivo pendiente
+- clearPendingFiles(): limpia archivos pendientes
+
+sendMessage() - Flujo detallado:
+1. Si no hay chat activo, crea uno nuevo.
+2. Agrega el mensaje del usuario al chat.
+3. Crea un mensaje del asistente vacio con isStreaming: true.
+4. Llama a POST /api/chat con el historial, modelo y proveedor.
+5. Lee el stream SSE con ReadableStream reader.
+6. Buffer de lineas: acumula chunks incompletos y procesa lineas completas.
+7. Por cada token recibido, actualiza el contenido del mensaje asistente.
+8. Al terminar, marca isStreaming: false y guarda el chat en IndexedDB.
+9. Si hay error, muestra mensaje de error y guarda igual.
+
+useActiveChat(): hook selector que devuelve el chat activo.
+
+
+================================================================================
+8. BASE DE DATOS LOCAL (lib/db.ts)
+================================================================================
+
+Usa IndexedDB via la libreria 'idb'.
+
+Base de datos: 'yosseling-db' (version 1)
+
+Object Stores:
+1. 'chats' (keyPath: 'id')
+   - Indices: 'updatedAt', 'isPinned'
+   - Almacena objetos Chat completos
+
+2. 'memory' (keyPath: 'id')
+   - Indice: 'category'
+   - Almacena objetos MemoryItem
+
+3. 'settings' (keyPath: 'id')
+   - No se usa activamente; settings se guardan en localStorage
+
+Funciones exportadas:
+- saveChat(chat): guarda/actualiza un chat
+- getChat(id): obtiene un chat por ID
+- getAllChats(): obtiene todos los chats ordenados por updatedAt desc
+- deleteChat(id): elimina un chat
+- clearAllChats(): borra todos los chats
+- saveMemoryItem(item): guarda un item de memoria
+- getAllMemory(): obtiene todos los items de memoria
+- deleteMemoryItem(id): elimina un item
+- clearAllMemory(): borra toda la memoria
+- loadSettings(): carga settings desde localStorage (con defaults)
+- saveSettings(settings): guarda settings en localStorage
+
+DEFAULT_SETTINGS:
+- theme: 'dark', language: 'es', fontSize: 'medium'
+- primaryColor: '#7C3AED'
+- defaultModel: 'llama-3.3-70b-versatile', defaultProvider: 'groq'
+- userName: 'Usuario'
+- voice: { enabled, voiceName, rate: 1.0, pitch: 1.0, volume: 1.0, language: 'es' }
+- autoSave: true, streamingEnabled: true
+- showTokenCount: true, showResponseTime: true
+
+
+================================================================================
+9. HOOKS
+================================================================================
+
+useVoice.ts (hooks/useVoice.ts):
+-------------------------------
+Hook de voz con dos capacidades:
+
+1. Sintesis de voz (Text-to-Speech):
+   - speak(text): usa window.speechSynthesis para leer texto en voz alta
+   - Busca voz femenina en el idioma configurado (es/en)
+   - Aplica rate, pitch, volume de settings.voice
+   - stopSpeaking(): cancela la sintesis
+
+2. Reconocimiento de voz (Speech-to-Text):
+   - startListening(onResult): usa SpeechRecognition API
+   - Configura idioma (es-ES / en-US)
+   - Llama a onResult(transcript) cuando reconoce texto
+   - stopListening(): detiene el reconocimiento
+   - Si el navegador no soporta SpeechRecognition, muestra alerta
+
+useFileUpload.ts (hooks/useFileUpload.ts):
+------------------------------------------
+Hook de carga de archivos:
+
+- processFile(file): procesa un archivo individual
+  - Imagenes: lee como DataURL para preview
+  - Documentos: lee como texto (max 8000 caracteres)
+  - Agrega el archivo a pendingFiles en el store
+- processFiles(files): procesa multiples archivos en paralelo
+
+Tipos aceptados:
+- PDF, DOCX, DOC, TXT, CSV, XLSX
+- PNG, JPEG, WEBP, GIF
+
+
+================================================================================
+10. COMPONENTES PRINCIPALES
+================================================================================
+
+app/layout.tsx:
+---------------
+Layout raiz. Configura:
+- Fuente Inter (Google Fonts) con variable CSS --font-inter
+- Metadata: titulo "Yosseling - Tu Asistente Inteligente"
+- Icono: logo de Yosseling
+- Clase 'dark' en <html> y <body> (tema oscuro por defecto)
+- suppressHydrationWarning para evitar warnings de hidratacion
+
+app/page.tsx:
+-------------
+Pagina principal. Compone toda la UI:
+- Sidebar (izquierda, animada con AnimatePresence)
+- SidebarOverlayPanel (panel flotante para Memory/Settings/Help)
+- Header (barra superior)
+- ChatArea (centro)
+- ToolsPanel (panel derecho, colapsable)
+- MobileNav (navegacion inferior en mobile)
+
+Atajos de teclado:
+- Ctrl/Cmd + K: nuevo chat
+
+Header.tsx:
+-----------
+Barra superior con:
+- Boton de menu (mobile)
+- ModelSelector (dropdown de modelo)
+- Botones de proveedores (OpenAI, Groq, OpenRouter, Gemini, Cerebras)
+  - Cada boton tiene el color del proveedor
+  - Click cambia el proveedor y selecciona su primer modelo
+- Indicador "Conectado" (punto verde pulsante)
+- Toggle de tema (claro/oscuro)
+- Boton de notificaciones
+- Toggle del panel derecho
+- Avatar de usuario
+
+ModelSelector.tsx:
+-------------------
+Dropdown para seleccionar modelo/proveedor:
+- Muestra modelo y proveedor actuales
+- "Modo Automatico" (usa Groq por defecto con fallback)
+- Lista modelos agrupados por proveedor en orden de fallback
+- Cada modelo muestra nombre, descripcion y badge "Default"
+- Click selecciona modelo y proveedor, cierra el dropdown
+
+Sidebar.tsx:
+------------
+Barra lateral con:
+- Logo de Yosseling (colapsable)
+- Boton "Nuevo Chat"
+- Busqueda de chats
+- Navegacion: Chats, Favoritos, Fijados, Compartidos, Memoria,
+  Documentos, Imagenes, Impresoras, Configuracion, Atajos, Ayuda
+- Lista de chats filtrada por vista y busqueda
+  - Cada chat: titulo, iconos de fijado/favorito, menu de acciones
+  - Acciones: Renombrar, Fijar/Desfijar, Favorito, Eliminar
+- Footer: info de usuario y modelo activo
+
+ChatArea.tsx:
+-------------
+Area central de chat:
+- Si no hay mensajes: pantalla de bienvenida con avatar, nombre y
+  acciones rapidas (Generar imagen, Leer voz, Analizar documento, etc.)
+- Si hay mensajes: lista de MessageBubble + indicador de typing
+- Auto-scroll al final cuando llegan nuevos mensajes
+- InputBar en la parte inferior
+
+MessageBubble.tsx:
+------------------
+Renderiza un mensaje individual:
+- Avatar (Yosseling para assistant, User para user)
+- Badge de proveedor y modelo (solo assistant)
+- Contenido:
+  - Mensajes del assistant: renderizado con ReactMarkdown
+    - Soporta GFM (tablas, listas, task lists)
+    - Bloques de codigo con SyntaxHighlighter (tema oneDark)
+    - Code blocks con boton de copiar
+  - Mensajes del user: texto plano con whitespace-pre-wrap
+- Cursor de typing durante streaming
+- Adjuntos (imagenes/archivos)
+- Acciones (hover): Copiar, Leer voz, Regenerar, Editar, Eliminar
+- Timestamp y tiempo de respuesta
+
+InputBar.tsx:
+-------------
+Barra de entrada:
+- Textarea auto-expandible
+- Toolbar: Adjuntar, Imagen, Documento, Imprimir, Microfono, Expandir
+- Boton de enviar (cambia a detener durante streaming)
+- Drag & drop de archivos
+- Preview de archivos pendientes
+- Input de archivo oculto (documentos e imagenes)
+- Enter envia, Shift+Enter nueva linea
+
+ToolsPanel.tsx:
+---------------
+Panel derecho de herramientas:
+- Secciones colapsables:
+  1. Herramientas: Generar imagen, Editar imagen, Analizar imagen,
+     OCR, Leer voz, Reconocer voz, Imprimir, Buscar web
+  2. Archivos adjuntos: lista de archivos recientes
+  3. Configuracion rapida: voz, velocidad, idioma, tema, tamano letra
+  4. Memoria: contador y barra de uso
+
+MemoryPanel.tsx:
+----------------
+Panel de gestion de memoria:
+- Lista de items de memoria con categoria (color-coded)
+- Agregar memoria: clave, valor, categoria
+- Editar memoria existente
+- Eliminar memoria individual
+- Vaciar toda la memoria
+- Categorias: Preferencia, Dato, Instruccion, Otro
+
+SettingsPanel.tsx:
+------------------
+Panel de configuracion:
+- Apariencia: tema (claro/oscuro), tamano de fuente
+- Voz: voz TTS, velocidad, tono, volumen, idioma
+- IA: modelo por defecto, proveedor por defecto, temperatura
+- Datos: exportar chats (JSON/TXT/MD), importar chats (JSON),
+  borrar todos los chats, borrar memoria
+- Cuenta: nombre de usuario
+
+HelpPanel.tsx:
+--------------
+Panel de ayuda:
+- Atajos de teclado (Enter, Shift+Enter, Ctrl+K, Ctrl+/, etc.)
+- Consejos de uso
+
+MobileNav.tsx:
+--------------
+Navegacion inferior para mobile:
+- 4 botones: Chat, Modelos, Memoria, Config
+- Solo visible en pantallas < md (768px)
+
+
+================================================================================
+11. TIPOS (types/index.ts)
+================================================================================
+
+Tipos principales:
+- Provider: 'openai' | 'groq' | 'openrouter' | 'gemini' | 'cerebras'
+- ModelId: union de todos los IDs de modelos
+- ModelConfig: { id, name, provider, description?, contextWindow?, isDefault? }
+- MessageRole: 'user' | 'assistant' | 'system'
+- AttachedFile: { id, name, type, size, content?, dataUrl? }
+- Message: { id, role, content, timestamp, model?, provider?, attachments?,
+    isStreaming?, responseTime?, tokenCount?, isFavorite? }
+- Chat: { id, title, messages, createdAt, updatedAt, model, provider,
+    isPinned?, isFavorite?, isShared?, shareId? }
+- MemoryItem: { id, key, value, createdAt, updatedAt, category? }
+- AppSettings: { theme, language, fontSize, primaryColor, defaultModel,
+    defaultProvider, userName, voice, autoSave, streamingEnabled,
+    showTokenCount, showResponseTime }
+- SidebarView: union de vistas del sidebar
+- RightPanelView: 'tools' | 'settings' | 'files' | 'memory'
+- AIRouterResult: resultado del enrutamiento de IA
+- AICenterInfo: info del centro de IA
+
+
+================================================================================
+12. BUGS CORREGIDOS
+================================================================================
+
+Bug 1: SSE - Perdida de tokens por lineas incompletas
+-----------------------------------------------------
+Archivo: lib/store.ts (sendMessage)
+Problema: El parser SSE dividia cada chunk por '\n' y procesaba todas
+las lineas. Si un chunk terminaba en medio de una linea SSE (data: {...),
+esa linea se procesaba incompleta y JSON.parse fallaba silenciosamente,
+perdiendo tokens.
+Fix: Se agrego un buffer que acumula el texto y solo procesa lineas
+completas. El resto del buffer se guarda para el siguiente chunk.
+
+Bug 2: regenerateResponse duplicaba el mensaje del usuario
+---------------------------------------------------------
+Archivo: lib/store.ts (regenerateResponse)
+Problema: Al regenerar, se eliminaban los mensajes hasta el assistant
+(excluyendolo), luego se buscaba el ultimo mensaje del usuario y se
+llamaba a sendMessage(). Pero sendMessage() agrega un NUEVO mensaje
+del usuario, duplicandolo.
+Fix: Ahora se busca el ultimo mensaje del usuario ANTES del assistant,
+se eliminan todos los mensajes desde ese usuario en adelante, y luego
+se llama a sendMessage() que re-agrega el mensaje del usuario y genera
+una respuesta nueva.
+
+Bug 3: shouldFallback no distinguia errores de autenticacion
+------------------------------------------------------------
+Archivo: app/api/chat/route.ts
+Problema: shouldFallback() devolvia true para cualquier error que
+contuviera "invalid" o "key", causando que errores de API key invalida
+intentaran fallback innecesariamente. Un error de key invalida es un
+problema de configuracion, no transitorio.
+Fix: Se agrego una verificacion explicita: si el error contiene
+"invalid" AND "key", devuelve false (no hacer fallback). Se agregaron
+ademas codigos 500, 502, 503 como errores recuperables.
+
+Bug 4: getProviderFromModel duplicado
+-------------------------------------
+Archivo: app/api/chat/route.ts
+Problema: La funcion getProviderFromModel() estaba definida tanto en
+lib/ai-config.ts como en app/api/chat/route.ts, con la misma logica.
+Fix: Se elimino la funcion duplicada de route.ts y se importa
+directamente desde ai-config.ts.
+
+Bug 5: Mapeo redundante de status en test-env
+---------------------------------------------
+Archivo: app/api/test-env/route.ts
+Problema: El mapeo de proveedores tenia una expresion redundante que
+verificaba dos veces el mismo caso (openrouter).
+Fix: Se simplifico a un solo mapeo directo: `${p.toUpperCase()}_API_KEY`.
+
+Bug 6: importChats era un no-op (no importaba nada)
+---------------------------------------------------
+Archivo: components/panels/SettingsPanel.tsx + lib/store.ts
+Problema: La funcion importChats() en SettingsPanel solo validaba el
+JSON pero no importaba los chats al store ni a IndexedDB.
+Fix: Se agrego el metodo importChats() al store de Zustand que:
+1. Filtra chats duplicados (por ID)
+2. Guarda cada chat nuevo en IndexedDB
+3. Los agrega al estado del store ordenados por updatedAt
+La funcion en SettingsPanel ahora llama al metodo del store.
+
+
+================================================================================
+13. GUIA DE MANTENIMIENTO
+================================================================================
+
+Para agregar un nuevo proveedor de IA:
+1. Agregar el tipo en types/index.ts (Provider union)
+2. Agregar configuracion en lib/ai-config.ts PROVIDER_CONFIG
+3. Agregar el proveedor a FALLBACK_ORDER si debe estar en la cadena
+4. Agregar logica de payload en app/api/chat/route.ts si el formato
+   no es OpenAI-compatible
+5. Agregar modelos en types/index.ts (ModelId union)
+
+Para agregar un nuevo modelo:
+1. Agregar el ID en types/index.ts (ModelId union)
+2. Agregar el modelo en PROVIDER_CONFIG[proveedor].models en ai-config.ts
+
+Para agregar una nueva herramienta:
+1. Agregar entrada en TOOLS array en ToolsPanel.tsx
+2. Agregar logica en handleTool() en ToolsPanel.tsx
+
+Para modificar el prompt del sistema:
+- Editar SYSTEM_PROMPT en lib/ai-config.ts
+
+Para cambiar el modelo por defecto:
+- Editar getDefaultModel() en ai-config.ts
+- Editar DEFAULT_SETTINGS.defaultModel en lib/db.ts
+
+Para agregar un nuevo atajo de teclado:
+1. Agregar logica en app/page.tsx (handleKeyDown)
+2. Agregar entrada en HelpPanel.tsx SHORTCUTS array
+
+================================================================================
+FIN DEL DOCUMENTO
+================================================================================
