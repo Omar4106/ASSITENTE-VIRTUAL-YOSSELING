@@ -12,7 +12,7 @@ import type { ModelId, Provider } from '@/types';
 import { cn } from '@/lib/utils';
 
 export function SettingsPanel() {
-  const { settings, updateSettings, clearAllChats, clearMemory, chats } = useAppStore();
+  const { settings, updateSettings, clearAllChats, clearMemory, chats, importChats: storeImportChats } = useAppStore();
   const [saved, setSaved] = useState(false);
 
   const save = (partial: Parameters<typeof updateSettings>[0]) => {
@@ -48,9 +48,10 @@ export function SettingsPanel() {
       if (!file) return;
       const text = await file.text();
       try {
-        // JSON.parse result used for validation only — actual import is a no-op in this demo
-        JSON.parse(text);
-        alert('Chats importados correctamente.');
+        const data = JSON.parse(text);
+        if (!Array.isArray(data)) throw new Error('Invalid format');
+        await storeImportChats(data);
+        alert(`Importadas ${data.length} conversaciones correctamente.`);
       } catch {
         alert('Error al importar: formato inválido.');
       }

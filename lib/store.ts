@@ -56,6 +56,7 @@ interface AppState {
   setActiveChat: (id: string) => void;
   deleteChat: (id: string) => Promise<void>;
   clearAllChats: () => Promise<void>;
+  importChats: (chats: Chat[]) => Promise<void>;
   sendMessage: (content: string, files?: AttachedFile[]) => Promise<void>;
   stopStreaming: () => void;
   editMessage: (chatId: string, messageId: string, content: string) => Promise<void>;
@@ -148,6 +149,18 @@ export const useAppStore = create<AppState>()(
       set({ chats: [], activeChatId: null });
     },
 
+    importChats: async (imported: Chat[]) => {
+      const existing = get().chats;
+      const existingIds = new Set(existing.map(c => c.id));
+      const toAdd = imported.filter(c => !existingIds.has(c.id));
+      for (const chat of toAdd) {
+        await saveChat(chat);
+      }
+      set(s => ({
+        chats: [...toAdd, ...s.chats].sort((a, b) => b.updatedAt - a.updatedAt),
+      }));
+    },
+
     sendMessage: async (content: string, files?: AttachedFile[]) => {
       const state = get();
       let chat = state.chats.find(c => c.id === state.activeChatId) ?? null;
@@ -231,12 +244,14 @@ export const useAppStore = create<AppState>()(
 
         const decoder = new TextDecoder();
         let fullContent = '';
+        let buffer = '';
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               const data = line.slice(6).trim();
@@ -339,15 +354,20 @@ export const useAppStore = create<AppState>()(
       if (!chat) return;
       const msgIdx = chat.messages.findIndex(m => m.id === messageId);
       if (msgIdx < 0) return;
-      const messagesUpTo = chat.messages.slice(0, msgIdx);
+      // Find the last user message at or before the assistant message being regenerated
+      let lastUserIdx = -1;
+      for (let i = msgIdx; i >= 0; i--) {
+        if (chat.messages[i].role === 'user') { lastUserIdx = i; break; }
+      }
+      if (lastUserIdx < 0) return;
+      const lastUser = chat.messages[lastUserIdx];
+      // Remove everything from the last user message onward, then re-send
+      const messagesBefore = chat.messages.slice(0, lastUserIdx);
       set(s => ({
-        chats: s.chats.map(c => c.id === chatId ? { ...c, messages: messagesUpTo } : c),
+        chats: s.chats.map(c => c.id === chatId ? { ...c, messages: messagesBefore } : c),
         activeChatId: chatId,
       }));
-      const lastUser = [...messagesUpTo].reverse().find(m => m.role === 'user');
-      if (lastUser) {
-        await get().sendMessage(lastUser.content, lastUser.attachments);
-      }
+      await get().sendMessage(lastUser.content, lastUser.attachments);
     },
 
     renameChat: async (id, title) => {

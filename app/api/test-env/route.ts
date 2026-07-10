@@ -22,7 +22,7 @@ export async function GET() {
   return NextResponse.json({
     providers: FALLBACK_ORDER.map(p => ({
       name: p,
-      configured: status[`${p.toUpperCase()}_API_KEY`] ?? status[`${p === 'openrouter' ? 'OPENROUTER' : p.toUpperCase()}_API_KEY`] ?? false,
+      configured: status[`${p.toUpperCase()}_API_KEY`] ?? false,
     })),
     keys: status,
     previews,
