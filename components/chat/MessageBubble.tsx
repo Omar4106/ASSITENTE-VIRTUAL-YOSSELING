@@ -7,10 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import {
-  Copy, Check, RefreshCw, Edit2, Trash2, Volume2,
-  ThumbsUp, ThumbsDown, MoreHorizontal, User
-} from 'lucide-react';
+import { Copy, Check, RefreshCw, CreditCard as Edit2, Trash2, Volume2, ThumbsUp, ThumbsDown, MoveHorizontal as MoreHorizontal, User } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { PROVIDERS } from '@/lib/ai-providers';
 import type { Message } from '@/types';
@@ -121,9 +118,22 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
           className={cn(
             'relative rounded-2xl px-4 py-3 text-sm leading-relaxed',
             isUser
-              ? 'bg-gradient-to-br from-purple-600 to-purple-700 text-white rounded-tr-sm'
-              : 'bg-[#171923] border border-white/[0.06] text-white/90 rounded-tl-sm'
+              ? 'text-white rounded-tr-sm'
+              : 'text-white/90 rounded-tl-sm'
           )}
+          style={isUser ? {
+            background: 'linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(79,70,229,0.7) 100%)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid rgba(168,85,247,0.3)',
+            boxShadow: '0 4px 20px rgba(124,58,237,0.2), inset 0 1px 0 rgba(255,255,255,0.1)',
+          } : {
+            background: 'rgba(12,9,28,0.72)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(124,58,237,0.12)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04)',
+          }}
         >
           {isEditing ? (
             <div className="flex flex-col gap-2">

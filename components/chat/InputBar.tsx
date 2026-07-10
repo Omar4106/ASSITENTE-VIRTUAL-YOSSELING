@@ -105,9 +105,15 @@ export function InputBar() {
       <div
         className={cn(
           'relative rounded-2xl border transition-all',
-          isDragging ? 'border-purple-500 bg-purple-500/10' : 'border-white/10 bg-[#171923]',
+          isDragging ? 'border-purple-500/60' : 'border-white/[0.08]',
           'focus-within:border-purple-500/50'
         )}
+        style={{
+          background: 'rgba(10,8,22,0.75)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)',
+        }}
         onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
