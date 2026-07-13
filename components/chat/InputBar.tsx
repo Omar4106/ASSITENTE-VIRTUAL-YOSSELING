@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Send, Square, Mic, MicOff, Paperclip, Image, FileText,
+  Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText,
   Printer, X, Maximize2, Minimize2
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
@@ -133,7 +133,7 @@ export function InputBar() {
         <div className="flex items-center justify-between px-3 pb-3 gap-2">
           <div className="flex items-center gap-1">
             <ToolBtn icon={<Paperclip size={15} />} label="Adjuntar" onClick={() => fileInputRef.current?.click()} />
-            <ToolBtn icon={<Image size={15} />} label="Imagen" onClick={() => imageInputRef.current?.click()} />
+            <ToolBtn icon={<ImageIcon size={15} />} label="Imagen" onClick={() => imageInputRef.current?.click()} />
             <ToolBtn icon={<FileText size={15} />} label="Documento" onClick={() => fileInputRef.current?.click()} />
             <ToolBtn icon={<Printer size={15} />} label="Imprimir" onClick={handlePrint} />
             <ToolBtn

@@ -186,7 +186,7 @@ export function ToolsPanel() {
               </div>
               {voiceState.currentWord && (
                 <p className="text-xs text-center text-purple-300 bg-purple-500/10 rounded-lg py-1">
-                  "{voiceState.currentWord}"
+                  &ldquo;{voiceState.currentWord}&rdquo;
                 </p>
               )}
               <div className="flex justify-center gap-2">

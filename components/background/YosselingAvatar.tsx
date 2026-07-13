@@ -71,7 +71,7 @@ export function YosselingAvatar({ isListening, isStreaming, isSpeaking, mouseX, 
     headControls.start({ x: 20, opacity: 0.8, transition: { duration: 0.4 } }).then(() =>
       headControls.start({ x: 0, opacity: 1, transition: { duration: 0.8, ease: 'easeOut' } })
     );
-  }, [onChatChange]);
+  }, [onChatChange, headControls]);
 
   const glowColor = isListening
     ? 'rgba(100,200,255,0.6)'
