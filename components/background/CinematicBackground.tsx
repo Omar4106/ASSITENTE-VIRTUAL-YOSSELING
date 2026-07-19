@@ -8,12 +8,10 @@ import { ParticleField } from './ParticleField';
 import { YosselingAvatar } from './YosselingAvatar';
 
 export function CinematicBackground() {
-  const { isStreaming, isSpeaking, isListening, activeChatId } = useAppStore(s => ({
-    isStreaming: s.isStreaming,
-    isSpeaking: s.isSpeaking,
-    isListening: s.isListening,
-    activeChatId: s.activeChatId,
-  }));
+  const isStreaming = useAppStore(s => s.isStreaming);
+  const isSpeaking = useAppStore(s => s.isSpeaking);
+  const isListening = useAppStore(s => s.isListening);
+  const activeChatId = useAppStore(s => s.activeChatId);
 
   const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 });
   const [chatChanged, setChatChanged] = useState(false);
