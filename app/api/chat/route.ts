@@ -381,6 +381,17 @@ ${realtimeContext.prompt}`
     const decision = routeModel(lastUserText, hasImages, forcedProvider);
 
     if (!decision.provider || !decision.model) {
+      // No AI provider configured — but if we have realtime data, stream it
+      // directly so the user still gets an updated answer.
+      if (realtimeContext) {
+        const summary = realtimeContext.results.map(r => r.summary).filter(Boolean).join('\n\n');
+        const sources = realtimeContext.results.flatMap(r => r.sources).slice(0, 5);
+        const sourceLines = sources.map((s, i) => `${i + 1}. ${s.title} — ${s.url}`).join('\n');
+        const answer = summary
+          ? `${summary}\n\nFuentes:\n${sourceLines}`
+          : `Encontré información reciente pero no pude resumirla. Te dejo las fuentes:\n${sourceLines}`;
+        return streamText(answer);
+      }
       return streamText('No hay ningún proveedor de IA configurado. Por favor agrega al menos una API key en el archivo .env (GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, u OPENAI_API_KEY).');
     }
 

@@ -63,7 +63,9 @@ const RULES: Rule[] = [
 const TEMPORAL_KEYWORDS = [
   'hoy', 'ahora', 'últimas', 'ultimo', 'último', 'esta semana', 'este mes',
   'este año', 'ayer', 'mañana', 'recientemente', 'últimamente', 'hace unas horas',
-  'en vivo', 'en directo', '2026', '2027', 'actualmente', 'en este momento',
+  'en vivo', 'en directo', '2024', '2025', '2026', '2027', '2028',
+  'actualmente', 'en este momento', 'actual', 'actualizado', 'actualizada',
+  'reciente', 'recientes', 'nuevo', 'nueva', 'últimamente', 'este año',
 ];
 
 export function detectIntent(message: string): IntentDetectionResult {
