@@ -2,10 +2,7 @@
 
 import { useState, useRef, useCallback, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText,
-  Printer, X, Maximize2, Minimize2
-} from 'lucide-react';
+import { Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText, Printer, X, Maximize2, Minimize2, Wand as Wand2 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { useVoice } from '@/hooks/useVoice';
 import { useFileUpload } from '@/hooks/useFileUpload';
@@ -23,6 +20,7 @@ export function InputBar() {
   const [input, setInput] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [imageMode, setImageMode] = useState<null | 'generate' | 'edit' | 'analyze'>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -35,7 +33,19 @@ export function InputBar() {
     const files = [...pendingFiles];
     clearPendingFiles();
     await sendMessage(content, files.length > 0 ? files : undefined);
+    setImageMode(null);
   }, [input, pendingFiles, isStreaming, clearPendingFiles, sendMessage]);
+
+  const handleImageAction = useCallback((mode: 'generate' | 'edit' | 'analyze') => {
+    setImageMode(mode);
+    const placeholders: Record<typeof mode, string> = {
+      generate: 'Describe la imagen que quieres crear… (ej: "un hotel moderno frente al mar")',
+      edit: 'Describe el cambio que quieres aplicar a la imagen adjunta…',
+      analyze: 'Adjunta una imagen y describe qué quieres saber sobre ella…',
+    };
+    setInput(prev => prev || placeholders[mode]);
+    textareaRef.current?.focus();
+  }, []);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -123,11 +133,41 @@ export function InputBar() {
           value={input}
           onChange={e => { setInput(e.target.value); autoResize(); }}
           onKeyDown={handleKeyDown}
-          placeholder="Escribe tu mensaje..."
+          placeholder={
+            imageMode === 'generate' ? 'Describe la imagen que quieres crear…'
+            : imageMode === 'edit' ? 'Describe el cambio para la imagen adjunta…'
+            : imageMode === 'analyze' ? 'Adjunta una imagen y pregunta sobre ella…'
+            : 'Escribe tu mensaje...'
+          }
           rows={1}
           className="w-full bg-transparent text-white text-sm placeholder-[#B3B3B3]/50 resize-none outline-none px-4 pt-4 pb-2 max-h-[200px] overflow-y-auto"
           style={{ minHeight: '52px' }}
         />
+
+        {/* Image-mode banner */}
+        <AnimatePresence>
+          {imageMode && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="flex items-center justify-between px-4 py-1.5 bg-gradient-to-r from-purple-500/10 to-fuchsia-500/10 border-t border-purple-500/20"
+            >
+              <span className="text-[11px] text-purple-300 flex items-center gap-1.5">
+                <Wand2 size={12} />
+                {imageMode === 'generate' && 'Modo: Crear imagen'}
+                {imageMode === 'edit' && 'Modo: Editar imagen'}
+                {imageMode === 'analyze' && 'Modo: Analizar imagen'}
+              </span>
+              <button
+                onClick={() => { setImageMode(null); setInput(''); }}
+                className="text-[11px] text-[#B3B3B3] hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Toolbar */}
         <div className="flex items-center justify-between px-3 pb-3 gap-2">
@@ -146,6 +186,15 @@ export function InputBar() {
               icon={expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
               label={expanded ? 'Contraer' : 'Expandir'}
               onClick={() => setExpanded(!expanded)}
+            />
+          </div>
+
+          <div className="flex items-center gap-1">
+            <ToolBtn
+              icon={<Wand2 size={15} className="text-fuchsia-400" />}
+              label="Crear imagen"
+              onClick={() => handleImageAction('generate')}
+              active={imageMode === 'generate'}
             />
           </div>
 

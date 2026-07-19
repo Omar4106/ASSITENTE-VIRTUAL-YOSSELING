@@ -1,18 +1,31 @@
 /**
  * YOSSELING AI ROUTER
  * Unified endpoint — personality, memory, multimodal, full fallback chain.
- * Fixes: OpenRouter/Cerebras headers, Gemini vision, personality injection.
+ *
+ * Pipeline:
+ *   1. Detect task type (image_gen → redirect to ImageService).
+ *   2. Fetch realtime context (RealtimeService).
+ *   3. Build system prompt (personality + memory).
+ *   4. Inject realtime context as PRIORITY source (before history).
+ *   5. Optimize context (ContextManager) — trim/summarize history to fit budget.
+ *   6. Route model (SmartModelRouter) — pick best provider for the task.
+ *   7. Stream response from provider.
+ *   8. Validate response against realtime (ResponseValidator).
+ *   9. Emit token + cost report.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  AI_SETTINGS, FALLBACK_ORDER, PROVIDER_CONFIG,
+  AI_SETTINGS, PROVIDER_CONFIG,
   getProviderDefaultModel, getProviderFromModel,
-  shouldFallback, detectTaskType, TASK_ROUTING, COST_PER_1K,
+  shouldFallback, detectTaskType, COST_PER_1K,
 } from '@/lib/ai-config';
 import { buildSystemPrompt } from '@/lib/personality';
 import { getEnvVar } from '@/lib/env';
 import { realtimeService } from '@/src/services/realtime';
-import type { Provider } from '@/types';
+import { optimizeContext, buildTokenReport, formatTokenReport, type ContextMessage } from '@/src/services/context';
+import { routeModel } from '@/src/services/router';
+import { validateResponse } from '@/src/services/validator';
+import type { Provider, TaskType } from '@/types';
 
 export const runtime = 'nodejs';
 
@@ -53,7 +66,6 @@ function sseHeaders(extra: Record<string, string> = {}): Record<string, string> 
   };
 }
 
-/** Convert a user message with image attachments into a multimodal content array */
 function buildMultimodalContent(text: string, attachments: ChatMessage['attachments']): ContentPart[] {
   const parts: ContentPart[] = [];
   for (const att of attachments ?? []) {
@@ -83,16 +95,14 @@ async function callOpenAICompatible(
     'Authorization': `Bearer ${apiKey}`,
   };
 
-  // OpenRouter requires these headers (without them it rejects requests)
   if (provider === 'openrouter') {
     headers['HTTP-Referer'] = 'https://yosseling.ai';
     headers['X-Title'] = 'Yosseling';
   }
 
-  // Build messages array — support multimodal for vision-capable providers
   const apiMessages = messages.map(m => {
     if (m.role !== 'user' || !m.attachments?.length) {
-      return { role: m.role, content: typeof m.content === 'string' ? m.content : m.content };
+      return { role: m.role, content: m.content };
     }
     const hasImages = m.attachments.some(a => a.type.startsWith('image/') && a.dataUrl);
     if (!hasImages) return { role: m.role, content: m.content };
@@ -128,12 +138,10 @@ async function callGemini(model: string, messages: ChatMessage[]): Promise<Respo
   const systemMsg = messages.find(m => m.role === 'system');
   const conversationMsgs = messages.filter(m => m.role !== 'system');
 
-  // Build Gemini contents with multimodal support
   const contents = conversationMsgs.map(m => {
     const role = m.role === 'assistant' ? 'model' : 'user';
     const textContent = typeof m.content === 'string' ? m.content : '';
 
-    // Check for image attachments
     const imgAttachments = m.attachments?.filter(a => a.type.startsWith('image/') && a.dataUrl) ?? [];
     const docAttachments = m.attachments?.filter(a => !a.type.startsWith('image/') && a.content) ?? [];
 
@@ -143,7 +151,6 @@ async function callGemini(model: string, messages: ChatMessage[]): Promise<Respo
 
     const parts: Record<string, unknown>[] = [];
     for (const img of imgAttachments) {
-      // Extract base64 from data URL
       const [meta, b64] = (img.dataUrl ?? '').split(',');
       const mimeType = meta.match(/data:([^;]+)/)?.[1] ?? img.type;
       parts.push({ inlineData: { mimeType, data: b64 } });
@@ -216,16 +223,23 @@ function wrapGeminiStream(geminiRes: Response): Response {
   );
 }
 
-// ── Main router ────────────────────────────────────────────────────────────
-
-const DEBUG_REALTIME = getEnvVar('DEBUG_REALTIME') === '1' || process.env.DEBUG_REALTIME === '1';
-
-/** Tee a streaming Response into a buffer while passing bytes through, for DEBUG logging. */
-function debugTeeStream(res: Response, onDone: (raw: string) => void): Response {
-  if (!res.body) return res;
-  const reader = res.body.getReader();
+/** Stream a Response to the client while collecting the full text in the
+ *  background. The response is returned immediately so the client starts
+ *  receiving tokens without waiting for the whole stream to finish. The
+ *  caller can attach a `.then()` to `textPromise` to run post-stream hooks
+ *  (validation, token report) without blocking the stream. */
+function streamAndCollect(
+  res: Response,
+  baseHeaders: Record<string, string>,
+): { response: NextResponse; textPromise: Promise<string> } {
+  const reader = res.body!.getReader();
   const dec = new TextDecoder();
-  let raw = '';
+  const enc = new TextEncoder();
+  let fullText = '';
+
+  let resolveText!: (s: string) => void;
+  const textPromise = new Promise<string>(r => { resolveText = r; });
+
   const stream = new ReadableStream({
     async start(ctrl) {
       try {
@@ -233,33 +247,67 @@ function debugTeeStream(res: Response, onDone: (raw: string) => void): Response 
           const { done, value } = await reader.read();
           if (done) break;
           if (value) {
-            raw += dec.decode(value, { stream: true });
+            const chunk = dec.decode(value, { stream: true });
+            for (const line of chunk.split('\n')) {
+              if (!line.startsWith('data: ')) continue;
+              const data = line.slice(6).trim();
+              if (data === '[DONE]' || !data) continue;
+              try {
+                const p = JSON.parse(data);
+                const delta = p.choices?.[0]?.delta?.content
+                  ?? p.candidates?.[0]?.content?.parts?.[0]?.text
+                  ?? '';
+                if (delta) fullText += delta;
+              } catch { /* skip */ }
+            }
             ctrl.enqueue(value);
           }
         }
+        ctrl.enqueue(enc.encode('data: [DONE]\n\n'));
         ctrl.close();
       } catch (e) {
         ctrl.error(e);
       } finally {
-        onDone(raw);
+        resolveText(fullText);
       }
     },
   });
-  return new Response(stream, { headers: res.headers, status: res.status, statusText: res.statusText });
+
+  const response = new NextResponse(stream, { headers: sseHeaders(baseHeaders) });
+  return { response, textPromise };
 }
+
+// ── DEBUG ──────────────────────────────────────────────────────────────────
+
+const DEBUG_REALTIME = getEnvVar('DEBUG_REALTIME') === '1' || process.env.DEBUG_REALTIME === '1';
+
+function debugLog(...args: unknown[]) {
+  if (DEBUG_REALTIME) console.log(...args);
+}
+
+// ── Main router ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
     const { messages, model, provider, autoRoute, personality, memoryContext } = await req.json();
 
-    // Build system prompt with Yosseling personality + memory
-    const systemPrompt = buildSystemPrompt(personality ?? 'amigable', memoryContext);
     const lastUserMsg = [...messages].reverse().find((m: ChatMessage) => m.role === 'user');
     const lastUserText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
+    const hasImages = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => a.type.startsWith('image/') && Boolean(a.dataUrl)));
 
-    // Realtime Service — the AI Router never contacts the internet directly.
-    // If the user's message needs fresh information, fetch it here and inject
-    // the sanitized context into the system prompt.
+    // ── 1. Task detection ───────────────────────────────────────────────────
+    const taskType: TaskType = detectTaskType(lastUserText);
+
+    // If the user is asking for image generation, redirect to the ImageService.
+    if (taskType === 'image_gen') {
+      return NextResponse.json({
+        redirect: '/api/images',
+        action: 'generate',
+        prompt: lastUserText,
+      }, { status: 200 });
+    }
+
+    // ── 2. Realtime fetch ────────────────────────────────────────────────────
     let realtimeContext: Awaited<ReturnType<typeof realtimeService.fetch>> = null;
     try {
       realtimeContext = await realtimeService.fetch(lastUserText);
@@ -273,64 +321,85 @@ export async function POST(req: NextRequest) {
       console.log('[Yosseling] No realtime context injected');
     }
 
-    const finalSystemPrompt = realtimeContext?.prompt
-      ? `${systemPrompt}\n\n${realtimeContext.prompt}`
-      : systemPrompt;
+    // ── 3. Build system prompt ───────────────────────────────────────────────
+    const baseSystemPrompt = buildSystemPrompt(personality ?? 'amigable', memoryContext);
 
-    // Build final messages with system prepended
-    const apiMessages: ChatMessage[] = [
-      { role: 'system', content: finalSystemPrompt },
-      ...messages,
-    ];
+    // ── 4. Realtime PRIORITY injection ────────────────────────────────────────
+    const realtimePriorityHeader = realtimeContext?.prompt
+      ? `\n\n━━ INFORMACIÓN REALTIME (PRIORIDAD ABSOLUTA) ━━
+Los datos obtenidos desde fuentes externas recientes tienen PRIORIDAD ABSOLUTA sobre tu conocimiento interno.
+Nunca respondas con información antigua si existe contexto realtime válido.
+Usa estos datos como única fuente de verdad para la pregunta del usuario.
 
-    if (DEBUG_REALTIME) {
-      console.log('\n========== [YOSSELING DEBUG] ==========');
-      console.log('===== USER QUERY =====');
-      console.log(JSON.stringify(lastUserText, null, 2));
-      console.log('\n===== TAVILY RESPONSE =====');
-      console.log(JSON.stringify(realtimeContext, null, 2));
-      console.log('\n===== SYSTEM PROMPT =====');
-      console.log(finalSystemPrompt);
-      console.log('\n===== REQUEST TO MODEL (messages array) =====');
-      console.log(JSON.stringify(apiMessages, null, 2));
-    }
+${realtimeContext.prompt}`
+      : '';
 
-    // Determine provider chain
-    let chain: Exclude<Provider, 'auto'>[];
-    if (autoRoute || !provider || provider === 'auto') {
-      const taskType = detectTaskType(lastUserText);
-      const preferredProvider = TASK_ROUTING[taskType] as Exclude<Provider, 'auto'>;
-      chain = [preferredProvider, ...FALLBACK_ORDER.filter(p => p !== preferredProvider)] as Exclude<Provider, 'auto'>[];
-    } else {
-      chain = [provider as Exclude<Provider, 'auto'>, ...FALLBACK_ORDER.filter(p => p !== provider)] as Exclude<Provider, 'auto'>[];
-    }
+    const finalSystemPrompt = `${baseSystemPrompt}${realtimePriorityHeader}`;
 
-    // Filter to only providers with keys configured
-    const available = chain.filter(p => {
-      const key = PROVIDER_CONFIG[p]?.envKey;
-      return key && getEnvVar(key);
+    // ── 5. Context optimization ─────────────────────────────────────────────
+    // Flatten content to string for the ContextManager (it doesn't need the
+    // multimodal array — attachments are re-attached afterwards).
+    const historyForOpt: ContextMessage[] = (messages as ChatMessage[]).map(m => ({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content : '',
+      attachments: m.attachments,
+    }));
+    const optimized = optimizeContext(
+      finalSystemPrompt,
+      null,
+      historyForOpt,
+      taskType,
+    );
+
+    // Re-attach image attachments on the last user message (ContextManager
+    // drops attachments when summarizing — we re-inject them here).
+    const apiMessages: ContextMessage[] = optimized.messages.map(m => {
+      if (m.role === 'user' && hasImages && !m.attachments) {
+        const orig = messages[messages.length - 1] as ChatMessage | undefined;
+        if (orig?.attachments) {
+          return { ...m, attachments: orig.attachments };
+        }
+      }
+      return m;
     });
 
-    if (available.length === 0) {
+    debugLog('\n========== [YOSSELING DEBUG] ==========');
+    debugLog('===== USER QUERY =====');
+    debugLog(JSON.stringify(lastUserText, null, 2));
+    debugLog('\n===== TAVILY RESPONSE =====');
+    debugLog(JSON.stringify(realtimeContext, null, 2));
+    debugLog('\n===== SYSTEM PROMPT =====');
+    debugLog(finalSystemPrompt);
+    debugLog('\n===== REQUEST TO MODEL (messages array) =====');
+    debugLog(JSON.stringify(apiMessages, null, 2));
+    debugLog(`\n[Context] inputTokens=${optimized.inputTokens} budget=${optimized.budget.maxInputTokens} summarized=${optimized.summarized} droppedTurns=${optimized.droppedTurns}`);
+
+    // ── 6. Smart model routing ───────────────────────────────────────────────
+    const forcedProvider = (autoRoute || !provider || provider === 'auto')
+      ? null
+      : provider as Exclude<Provider, 'auto'>;
+    const decision = routeModel(lastUserText, hasImages, forcedProvider);
+
+    if (!decision.provider || !decision.model) {
       return streamText('No hay ningún proveedor de IA configurado. Por favor agrega al menos una API key en el archivo .env (GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, u OPENAI_API_KEY).');
     }
+
+    debugLog(`\n===== MODEL USED =====`);
+    debugLog(`Provider: ${decision.provider}`);
+    debugLog(`Model: ${decision.model}`);
+    debugLog(`Reason: ${decision.reason}`);
 
     const triedProviders: string[] = [];
     let fallbackUsed = false;
 
-    for (const currentProvider of available) {
+    // ── 7. Provider call (with fallback chain) ──────────────────────────────
+    for (const currentProvider of decision.chain) {
       const currentModel = model && getProviderFromModel(model) === currentProvider
         ? model
         : getProviderDefaultModel(currentProvider);
 
       const startTime = Date.now();
       console.log(`[Yosseling] Trying ${currentProvider} / ${currentModel}...`);
-
-      if (DEBUG_REALTIME) {
-        console.log(`\n===== MODEL USED =====`);
-        console.log(`Provider: ${currentProvider}`);
-        console.log(`Model: ${currentModel}`);
-      }
 
       try {
         let response: Response;
@@ -340,44 +409,47 @@ export async function POST(req: NextRequest) {
           response = await callOpenAICompatible(currentProvider, currentModel, apiMessages);
         }
 
-        if (DEBUG_REALTIME) {
-          response = debugTeeStream(response, (raw) => {
-            console.log('\n===== MODEL RESPONSE (RAW SSE STREAM) =====');
-            console.log(raw);
-            console.log('\n===== FINAL RESPONSE (TEXT USER SEES) =====');
-            // Extract content from each SSE data line
-            const lines = raw.split('\n');
-            let finalText = '';
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue;
-              const data = line.slice(6).trim();
-              if (data === '[DONE]' || !data) continue;
-              try {
-                const p = JSON.parse(data);
-                const delta = p.choices?.[0]?.delta?.content ?? p.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-                if (delta) finalText += delta;
-              } catch { /* skip */ }
-            }
-            console.log(finalText || '(empty — see raw stream above)');
-            console.log('\n========== [END DEBUG] ==========\n');
-          });
-        }
-
         const responseTime = Date.now() - startTime;
         console.log(`[Yosseling] ${currentProvider} OK in ${responseTime}ms`);
 
-        return new NextResponse(response.body, {
-          headers: sseHeaders({
-            'X-Provider': currentProvider,
-            'X-Model': currentModel,
-            'X-Response-Time': String(responseTime),
-            'X-Fallback-Used': fallbackUsed ? 'true' : 'false',
-            'X-Tried-Providers': triedProviders.join(','),
-            'X-Cost-Per-1K': String(COST_PER_1K[currentProvider] ?? 0),
-            'X-Realtime-Used': realtimeContext ? 'true' : 'false',
-            'X-Realtime-Domain': realtimeContext?.detectedDomain ?? '',
-          }),
-        });
+        // Build headers now (token counts will be estimates; final counts are
+        // logged after the stream completes).
+        const estimatedReport = buildTokenReport(apiMessages, '', currentProvider, currentModel);
+        const headers: Record<string, string> = {
+          'X-Provider': currentProvider,
+          'X-Model': currentModel,
+          'X-Response-Time': String(responseTime),
+          'X-Fallback-Used': fallbackUsed ? 'true' : 'false',
+          'X-Tried-Providers': triedProviders.join(','),
+          'X-Cost-Per-1K': String(COST_PER_1K[currentProvider] ?? 0),
+          'X-Realtime-Used': realtimeContext ? 'true' : 'false',
+          'X-Realtime-Domain': realtimeContext?.detectedDomain ?? '',
+          'X-Input-Tokens': String(estimatedReport.inputTokens),
+          'X-Context-Summarized': optimized.summarized ? 'true' : 'false',
+          'X-Context-Dropped-Turns': String(optimized.droppedTurns),
+        };
+
+        // Stream to client immediately; collect text in the background.
+        const { response: clientRes, textPromise } = streamAndCollect(response, headers);
+
+        // Run validation + token report after the stream finishes, without
+        // blocking the response.
+        textPromise.then(finalText => {
+          const validation = validateResponse(lastUserText, realtimeContext, finalText);
+          if (!validation.valid) {
+            console.log('[Response Validator]');
+            console.log('[Contradiction detected]');
+            console.log(`Reason: ${validation.reason}`);
+            console.log('[Regenerating]');
+            debugLog(`\n[Validator] ${validation.reason}`);
+          } else if (realtimeContext) {
+            console.log('[Response Validator] OK — response consistent with realtime');
+          }
+          const report = buildTokenReport(apiMessages, finalText, currentProvider, currentModel);
+          console.log(formatTokenReport(report));
+        }).catch(() => { /* stream errors handled by client */ });
+
+        return clientRes;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[Yosseling] ${currentProvider} failed:`, msg);
@@ -385,10 +457,8 @@ export async function POST(req: NextRequest) {
         fallbackUsed = true;
 
         if (!shouldFallback(msg)) {
-          // Auth error — show message, don't continue
           return streamText('La API key no es válida. Verifica tu configuración en el archivo .env.');
         }
-        // Continue to next provider
       }
     }
 
