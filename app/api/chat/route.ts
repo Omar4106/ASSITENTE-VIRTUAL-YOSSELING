@@ -237,6 +237,12 @@ export async function POST(req: NextRequest) {
       console.warn('[Yosseling] Realtime fetch failed (non-fatal):', e);
     }
 
+    if (realtimeContext?.prompt) {
+      console.log(`[Yosseling] Realtime context injected — domain=${realtimeContext.detectedDomain} sources=${realtimeContext.results.reduce((n, r) => n + r.sources.length, 0)} promptLen=${realtimeContext.prompt.length}`);
+    } else {
+      console.log('[Yosseling] No realtime context injected');
+    }
+
     const finalSystemPrompt = realtimeContext?.prompt
       ? `${systemPrompt}\n\n${realtimeContext.prompt}`
       : systemPrompt;

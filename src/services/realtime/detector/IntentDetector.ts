@@ -28,8 +28,10 @@ const RULES: Rule[] = [
   },
   {
     domain: 'news',
-    keywords: ['noticias', 'noticia', 'titulares', 'últimas noticias', 'ultimas noticias', 'actualidad', 'sucedido', 'periódico', 'periodico', 'cabecera'],
-    patterns: [/noticias\s+(de|sobre|del|de las)\s/i],
+    keywords: ['noticias', 'noticia', 'titulares', 'últimas noticias', 'ultimas noticias', 'actualidad', 'sucedido', 'periódico', 'periodico', 'cabecera',
+      'presidente', 'presidenta', 'primer ministro', 'prime minister', 'gobernador', 'alcalde', 'secretario general', 'líder', 'dirigente', 'jefe de estado', 'jefe de gobierno',
+      'quién es el', 'quien es el', 'quién es la', 'quien es la', 'quién gobierna', 'quien gobierna', 'quién ganó', 'quien gano'],
+    patterns: [/noticias\s+(de|sobre|del|de las)\s/i, /(qu[ií]en|president[ea]|primer ministro|gobernador|alcalde)\s+(actual|de|del|de la)/i],
   },
   {
     domain: 'sports',
