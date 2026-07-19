@@ -218,6 +218,36 @@ function wrapGeminiStream(geminiRes: Response): Response {
 
 // ── Main router ────────────────────────────────────────────────────────────
 
+const DEBUG_REALTIME = getEnvVar('DEBUG_REALTIME') === '1' || process.env.DEBUG_REALTIME === '1';
+
+/** Tee a streaming Response into a buffer while passing bytes through, for DEBUG logging. */
+function debugTeeStream(res: Response, onDone: (raw: string) => void): Response {
+  if (!res.body) return res;
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let raw = '';
+  const stream = new ReadableStream({
+    async start(ctrl) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            raw += dec.decode(value, { stream: true });
+            ctrl.enqueue(value);
+          }
+        }
+        ctrl.close();
+      } catch (e) {
+        ctrl.error(e);
+      } finally {
+        onDone(raw);
+      }
+    },
+  });
+  return new Response(stream, { headers: res.headers, status: res.status, statusText: res.statusText });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { messages, model, provider, autoRoute, personality, memoryContext } = await req.json();
@@ -253,6 +283,18 @@ export async function POST(req: NextRequest) {
       ...messages,
     ];
 
+    if (DEBUG_REALTIME) {
+      console.log('\n========== [YOSSELING DEBUG] ==========');
+      console.log('===== USER QUERY =====');
+      console.log(JSON.stringify(lastUserText, null, 2));
+      console.log('\n===== TAVILY RESPONSE =====');
+      console.log(JSON.stringify(realtimeContext, null, 2));
+      console.log('\n===== SYSTEM PROMPT =====');
+      console.log(finalSystemPrompt);
+      console.log('\n===== REQUEST TO MODEL (messages array) =====');
+      console.log(JSON.stringify(apiMessages, null, 2));
+    }
+
     // Determine provider chain
     let chain: Exclude<Provider, 'auto'>[];
     if (autoRoute || !provider || provider === 'auto') {
@@ -284,12 +326,41 @@ export async function POST(req: NextRequest) {
       const startTime = Date.now();
       console.log(`[Yosseling] Trying ${currentProvider} / ${currentModel}...`);
 
+      if (DEBUG_REALTIME) {
+        console.log(`\n===== MODEL USED =====`);
+        console.log(`Provider: ${currentProvider}`);
+        console.log(`Model: ${currentModel}`);
+      }
+
       try {
         let response: Response;
         if (currentProvider === 'gemini') {
           response = await callGemini(currentModel, apiMessages);
         } else {
           response = await callOpenAICompatible(currentProvider, currentModel, apiMessages);
+        }
+
+        if (DEBUG_REALTIME) {
+          response = debugTeeStream(response, (raw) => {
+            console.log('\n===== MODEL RESPONSE (RAW SSE STREAM) =====');
+            console.log(raw);
+            console.log('\n===== FINAL RESPONSE (TEXT USER SEES) =====');
+            // Extract content from each SSE data line
+            const lines = raw.split('\n');
+            let finalText = '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const data = line.slice(6).trim();
+              if (data === '[DONE]' || !data) continue;
+              try {
+                const p = JSON.parse(data);
+                const delta = p.choices?.[0]?.delta?.content ?? p.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+                if (delta) finalText += delta;
+              } catch { /* skip */ }
+            }
+            console.log(finalText || '(empty — see raw stream above)');
+            console.log('\n========== [END DEBUG] ==========\n');
+          });
         }
 
         const responseTime = Date.now() - startTime;
