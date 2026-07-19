@@ -95,9 +95,12 @@ class RealtimeService {
 
     for (const p of providers) {
       if (!p.isConfigured()) continue;
+      console.log(`[Realtime] Selected Provider: ${p.id} (${p.name})`);
+      console.log(`[Realtime] Searching... "${v.normalized.query}"`);
       try {
         const r = await p.search(v.normalized);
         const sanitized = sanitizeResult(r);
+        console.log(`[Realtime] Search completed — ${sanitized.sources.length} source(s) from ${p.id}`);
         if (isResultUsable(sanitized)) return sanitized;
       } catch (e) {
         console.warn(`[RealtimeService] ${p.id} failed for "${req.query}":`, e);
@@ -122,7 +125,12 @@ class RealtimeService {
 
   async fetch(message: string): Promise<RealtimeContext | null> {
     const intent = this.detect(message);
-    if (!intent.needsRealtime || !intent.domain) return null;
+    if (!intent.needsRealtime || !intent.domain) {
+      console.log('[Realtime] No realtime data found');
+      return null;
+    }
+
+    console.log(`[Realtime] Intent detected — domain=${intent.domain} confidence=${intent.confidence} keywords=[${intent.matchedKeywords.join(', ')}]`);
 
     const domain = intent.domain;
     let result: RealtimeResult | null = null;
@@ -134,8 +142,11 @@ class RealtimeService {
             return this.runSearchChain('search', { query: intent.query, maxResults: 6 });
           case 'news': {
             if (this.news.isConfigured()) {
+              console.log(`[Realtime] Selected Provider: ${this.news.id} (${this.news.name})`);
+              console.log(`[Realtime] Searching... "${intent.query}"`);
               try {
                 const r = sanitizeResult(await this.news.news({ query: intent.query, maxResults: 6 }));
+                console.log(`[Realtime] Search completed — ${r.sources.length} source(s) from ${this.news.id}`);
                 if (isResultUsable(r)) return r;
               } catch (e) {
                 console.warn('[RealtimeService] news failed, falling back to search:', e);
@@ -147,8 +158,11 @@ class RealtimeService {
             const loc = extractLocation(intent.query) ?? intent.query;
             const req: WeatherRequest = { location: loc };
             if (this.weather.isConfigured()) {
+              console.log(`[Realtime] Selected Provider: ${this.weather.id} (${this.weather.name})`);
+              console.log(`[Realtime] Searching... "${loc}"`);
               try {
                 const r = sanitizeResult(await this.weather.weather(req));
+                console.log(`[Realtime] Search completed — ${r.sources.length} source(s) from ${this.weather.id}`);
                 if (isResultUsable(r)) return r;
               } catch (e) {
                 console.warn('[RealtimeService] weather failed, falling back to search:', e);
@@ -159,8 +173,11 @@ class RealtimeService {
           case 'crypto': {
             const symbol = extractCryptoSymbol(intent.query) ?? 'bitcoin';
             const req: CryptoRequest = { symbol };
+            console.log(`[Realtime] Selected Provider: ${this.crypto.id} (${this.crypto.name})`);
+            console.log(`[Realtime] Searching... "${symbol}"`);
             try {
               const r = sanitizeResult(await this.crypto.crypto(req));
+              console.log(`[Realtime] Search completed — ${r.sources.length} source(s) from ${this.crypto.id}`);
               if (isResultUsable(r)) return r;
             } catch (e) {
               console.warn('[RealtimeService] crypto failed, falling back to search:', e);
@@ -170,40 +187,70 @@ class RealtimeService {
           case 'stocks': {
             const symbol = extractStockSymbol(intent.query) ?? intent.query;
             const req: StocksRequest = { symbol };
-            return sanitizeResult(await this.stocks.stocks(req));
+            console.log(`[Realtime] Selected Provider: ${this.stocks.id} (${this.stocks.name})`);
+            console.log(`[Realtime] Searching... "${symbol}"`);
+            const r = sanitizeResult(await this.stocks.stocks(req));
+            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+            return r;
           }
           case 'sports': {
             const req: SportsRequest = { query: intent.query };
-            return sanitizeResult(await this.sports.sports(req));
+            console.log(`[Realtime] Selected Provider: ${this.sports.id} (${this.sports.name})`);
+            console.log(`[Realtime] Searching... "${intent.query}"`);
+            const r = sanitizeResult(await this.sports.sports(req));
+            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+            return r;
           }
           case 'traffic': {
             const { origin, destination } = extractRoute(intent.query);
             const req: TrafficRequest = { origin, destination };
-            return sanitizeResult(await this.traffic.traffic(req));
+            console.log(`[Realtime] Selected Provider: ${this.traffic.id} (${this.traffic.name})`);
+            console.log(`[Realtime] Searching... "${origin} → ${destination}"`);
+            const r = sanitizeResult(await this.traffic.traffic(req));
+            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+            return r;
           }
           case 'flights': {
             const req: FlightsRequest = { query: intent.query };
-            return sanitizeResult(await this.flights.flights(req));
+            console.log(`[Realtime] Selected Provider: ${this.flights.id} (${this.flights.name})`);
+            console.log(`[Realtime] Searching... "${intent.query}"`);
+            const r = sanitizeResult(await this.flights.flights(req));
+            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+            return r;
           }
           case 'location': {
             const req: LocationRequest = { query: intent.query };
-            return sanitizeResult(await this.location.location(req));
+            console.log(`[Realtime] Selected Provider: ${this.location.id} (${this.location.name})`);
+            console.log(`[Realtime] Searching... "${intent.query}"`);
+            const r = sanitizeResult(await this.location.location(req));
+            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+            return r;
           }
           case 'scheduler': {
-            return sanitizeResult(await this.scheduler.search({ query: intent.query, maxResults: 6, freshness: 'month' }));
+            console.log(`[Realtime] Selected Provider: ${this.scheduler.id} (${this.scheduler.name})`);
+            console.log(`[Realtime] Searching... "${intent.query}"`);
+            const r = sanitizeResult(await this.scheduler.search({ query: intent.query, maxResults: 6, freshness: 'month' }));
+            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+            return r;
           }
           default:
             return null;
         }
       });
     } catch (e) {
-      console.error('[RealtimeService] fetch error:', e);
+      console.error('[Realtime] ERROR', e);
       return null;
     }
 
-    if (!result || !isResultUsable(result)) return null;
+    if (!result || !isResultUsable(result)) {
+      console.log('[Realtime] No realtime data found');
+      return null;
+    }
 
-    return buildRealtimeContext(intent.query, domain, [result]);
+    console.log(`[Realtime] Sources found: ${result.sources.length}`);
+    const ctx = buildRealtimeContext(intent.query, domain, [result]);
+    console.log('[Realtime] Context injected into AI');
+    return ctx;
   }
 
   /** Convenience accessor for tests / debugging. */
