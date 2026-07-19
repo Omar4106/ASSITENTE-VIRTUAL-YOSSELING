@@ -11,6 +11,7 @@ import {
 } from '@/lib/ai-config';
 import { buildSystemPrompt } from '@/lib/personality';
 import { getEnvVar } from '@/lib/env';
+import { realtimeService } from '@/src/services/realtime';
 import type { Provider } from '@/types';
 
 export const runtime = 'nodejs';
@@ -226,9 +227,23 @@ export async function POST(req: NextRequest) {
     const lastUserMsg = [...messages].reverse().find((m: ChatMessage) => m.role === 'user');
     const lastUserText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
 
+    // Realtime Service — the AI Router never contacts the internet directly.
+    // If the user's message needs fresh information, fetch it here and inject
+    // the sanitized context into the system prompt.
+    let realtimeContext: Awaited<ReturnType<typeof realtimeService.fetch>> = null;
+    try {
+      realtimeContext = await realtimeService.fetch(lastUserText);
+    } catch (e) {
+      console.warn('[Yosseling] Realtime fetch failed (non-fatal):', e);
+    }
+
+    const finalSystemPrompt = realtimeContext?.prompt
+      ? `${systemPrompt}\n\n${realtimeContext.prompt}`
+      : systemPrompt;
+
     // Build final messages with system prepended
     const apiMessages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: finalSystemPrompt },
       ...messages,
     ];
 
@@ -282,6 +297,8 @@ export async function POST(req: NextRequest) {
             'X-Fallback-Used': fallbackUsed ? 'true' : 'false',
             'X-Tried-Providers': triedProviders.join(','),
             'X-Cost-Per-1K': String(COST_PER_1K[currentProvider] ?? 0),
+            'X-Realtime-Used': realtimeContext ? 'true' : 'false',
+            'X-Realtime-Domain': realtimeContext?.detectedDomain ?? '',
           }),
         });
       } catch (err) {
