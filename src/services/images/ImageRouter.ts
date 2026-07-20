@@ -1,10 +1,20 @@
 /**
  * ImageRouter — central orchestrator for image generation, editing, and analysis.
  *
+ * Routing policy (non-negotiable):
+ *
+ *   GENERATE  →  OpenAI Images API (DALL-E 3)
+ *   EDIT      →  OpenAI Images API (gpt-image-1)
+ *   ANALYZE   →  Gemini Vision (gemini-2.5-flash)
+ *
+ * Gemini is NEVER used for image generation or editing. Only stable,
+ * official OpenAI models are used for generation and editing. Gemini is
+ * used exclusively for vision analysis (describe, OCR, Q&A).
+ *
  * Responsibilities:
- *  - Detect whether a user message requests an image action (IntentDetector).
- *  - Select the appropriate provider (OpenAI for generation/edit, Gemini for analysis).
- *  - Delegate to ImageService for the actual API call.
+ *  - Detect whether a user message requests an image action.
+ *  - Select the appropriate provider based on the routing policy above.
+ *  - Delegate to the provider implementation for the actual API call.
  *  - Track cost and timing for each operation.
  *  - Manage a per-instance history of operations.
  *
@@ -24,6 +34,7 @@ import { enhancePrompt, buildNegativePrompt } from './PromptEnhancer';
 const GENERATE_KEYWORDS = [
   'crea una imagen', 'crea imagen', 'genera una imagen', 'genera imagen',
   'crea un logo', 'crea logo', 'diseña un logo', 'diseña logo',
+  'genera un logo', 'genera logo',
   'crea una ilustración', 'crea ilustracion', 'crea una ilustracion',
   'crea una portada', 'crea portada',
   'crea un banner', 'crea banner',
@@ -33,6 +44,10 @@ const GENERATE_KEYWORDS = [
   'crea una imagen realista', 'crea una imagen anime',
   'dibuja', 'diseña', 'renderiza', 'genera una foto', 'genera foto',
   'crea un dibujo', 'crea dibujo',
+  'haz una ilustración', 'haz una ilustracion', 'haz ilustración', 'haz ilustracion',
+  'haz un wallpaper', 'haz wallpaper', 'crea un wallpaper', 'crea wallpaper',
+  'haz un dibujo', 'haz dibujo',
+  'haz una imagen', 'haz imagen',
 ];
 
 const EDIT_KEYWORDS = [
@@ -48,31 +63,36 @@ const ANALYZE_KEYWORDS = [
   'qué ves en esta imagen', 'que ves en esta imagen',
   'qué ves en la imagen', 'que ves en la imagen',
   'qué hay en esta imagen', 'que hay en esta imagen',
-  'describe la imagen', 'describe esta imagen',
-  'analiza la imagen', 'analiza esta imagen', 'analiza imagen',
-  'lee la imagen', 'lee esta imagen', 'extrae el texto',
+  'describe la imagen', 'describe esta imagen', 'descríbela', 'describela',
+  'analiza la imagen', 'analiza esta imagen', 'analiza imagen', 'analízala', 'analizala',
+  'lee la imagen', 'lee esta imagen', 'extrae el texto', 'extrae texto',
   'ocr', 'reconoce', 'reconocimiento',
   'qué hay en la foto', 'que hay en la foto',
+  'qué ves', 'que ves',
 ];
 
 const GENERATE_PATTERNS = [
   /crea\w*\s+(una\s+)?imagen\s+de/i,
-  /genera\w*\s+(una\s+)?imagen\s+de/i,
+  /genera\w*\s+(una\s+)?(imagen|logo|dibujo|ilustración|ilustracion|wallpaper|banner|flyer|póster|poster|portada|fotografía|fotografia)\b/i,
   /dibuja\s+\w+/i,
   /diseña\s+\w+/i,
   /renderiza\s+\w+/i,
+  /haz\s+(una\s+)?(imagen|ilustración|ilustracion|wallpaper|dibujo|logo|banner|flyer|póster|poster|portada|fotografía|fotografia)\b/i,
 ];
 
 const EDIT_PATTERNS = [
-  /convierte\w*\s+(esta\s+)?(foto|imagen)\s+a\s+(anime|dibujo|pintura|óleo|oleo)/i,
-  /edita\w*\s+(la\s+)?(imagen|foto)/i,
+  /convierte\w*\s+(esta\s+)?(foto|imagen|fotografía|fotografia)\s+a\s+(anime|dibujo|pintura|óleo|oleo|estilo)/i,
+  /edita\w*\s+(la\s+)?(imagen|foto|fotografía|fotografia)/i,
   /quita\w*\s+el\s+fondo/i,
+  /cambia\w*\s+el\s+color/i,
+  /mejora\w*\s+la\s+calidad/i,
 ];
 
 const ANALYZE_PATTERNS = [
   /qu[eé]\s+(ves|hay)\s+en\s+(esta\s+)?(imagen|foto)/i,
   /describe\s+(la|esta)\s+imagen/i,
   /analiza\s+(la|esta)\s+imagen/i,
+  /extrae\w*\s+(el\s+)?texto/i,
 ];
 
 export function detectImageIntent(message: string, hasImageAttachment = false): ImageIntent {
@@ -150,29 +170,50 @@ function hasGemini(): boolean {
   return Boolean(getEnvVar('GEMINI_API_KEY'));
 }
 
+/**
+ * Select provider based on the routing policy:
+ *   generate → OpenAI
+ *   edit     → OpenAI
+ *   analyze  → Gemini
+ *
+ * Fallback:
+ *   If the primary provider is not configured, we fall back to the other
+ *   provider ONLY for analysis (Gemini → OpenAI vision). Generation and
+ *   editing NEVER fall back to Gemini — they require OpenAI.
+ */
 export function selectProvider(mode: ImageMode | null): ImageRouterDecision {
   if (mode === 'generate') {
-    if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI DALL-E available for generation', fallback: hasGemini() ? 'gemini' : null };
-    if (hasGemini()) return { provider: 'gemini', reason: 'Gemini image generation (OpenAI not configured)', fallback: null };
-    return { provider: null, reason: 'No image generation provider configured (need OPENAI_API_KEY or GEMINI_API_KEY)', fallback: null };
+    if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI DALL-E 3 for image generation', fallback: null };
+    return {
+      provider: null,
+      reason: 'OPENAI_API_KEY is required for image generation. Gemini is not used for generation.',
+      fallback: null,
+    };
   }
   if (mode === 'edit') {
-    if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI image edit endpoint available', fallback: null };
-    if (hasGemini()) return { provider: 'gemini', reason: 'Gemini fallback for edit (OpenAI not configured)', fallback: null };
-    return { provider: null, reason: 'No image edit provider configured (need OPENAI_API_KEY or GEMINI_API_KEY)', fallback: null };
+    if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI gpt-image-1 for image editing', fallback: null };
+    return {
+      provider: null,
+      reason: 'OPENAI_API_KEY is required for image editing. Gemini is not used for editing.',
+      fallback: null,
+    };
   }
   if (mode === 'analyze') {
-    if (hasGemini()) return { provider: 'gemini', reason: 'Gemini vision available for analysis', fallback: hasOpenAI() ? 'openai' : null };
-    if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI GPT-4o vision (Gemini not configured)', fallback: null };
-    return { provider: null, reason: 'No image analysis provider configured (need GEMINI_API_KEY or OPENAI_API_KEY)', fallback: null };
+    if (hasGemini()) return { provider: 'gemini', reason: 'Gemini Vision for image analysis', fallback: hasOpenAI() ? 'openai' : null };
+    if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI GPT-4o Vision (Gemini not configured)', fallback: null };
+    return {
+      provider: null,
+      reason: 'GEMINI_API_KEY or OPENAI_API_KEY is required for image analysis.',
+      fallback: null,
+    };
   }
   return { provider: null, reason: 'No image mode detected', fallback: null };
 }
 
-export function listProviders(): Array<{ id: ImageProviderId; name: string; configured: boolean }> {
+export function listProviders(): Array<{ id: ImageProviderId; name: string; configured: boolean; roles: string[] }> {
   return [
-    { id: 'openai', name: 'OpenAI (DALL-E 3 / GPT-4o Vision)', configured: hasOpenAI() },
-    { id: 'gemini', name: 'Gemini (Imagen / Vision)', configured: hasGemini() },
+    { id: 'openai', name: 'OpenAI (DALL-E 3 / gpt-image-1)', configured: hasOpenAI(), roles: ['generate', 'edit'] },
+    { id: 'gemini', name: 'Gemini (Vision / OCR)', configured: hasGemini(), roles: ['analyze'] },
   ];
 }
 
@@ -184,6 +225,16 @@ class ImageRouter {
 
   isConfigured(): boolean {
     return hasOpenAI() || hasGemini();
+  }
+
+  /** True if generation/editing is possible (requires OpenAI). */
+  canGenerate(): boolean {
+    return hasOpenAI();
+  }
+
+  /** True if analysis is possible (requires Gemini or OpenAI). */
+  canAnalyze(): boolean {
+    return hasGemini() || hasOpenAI();
   }
 
   detect(message: string, hasImageAttachment = false): ImageIntent {
@@ -202,54 +253,31 @@ class ImageRouter {
     const negative = buildNegativePrompt(req.style);
 
     console.log('[Image Router]');
+    console.log('  Provider: OpenAI Images API');
+    console.log('  Action: Generate');
     console.log('[Prompt Detected]');
     console.log(`  original: ${req.prompt.slice(0, 120)}`);
     console.log(`  enhanced: ${enhanced.slice(0, 200)}`);
-    console.log('[Provider Selected]');
-    console.log(`  provider: ${decision.provider}`);
-    console.log(`  reason: ${decision.reason}`);
     console.log('[Generating Image]');
     console.log(`  size: ${req.size ?? '1024x1024'} quality: ${req.quality ?? 'standard'} n: ${req.n ?? 1}`);
 
     const start = Date.now();
-    try {
-      const result = await this.callGenerate(decision.provider, { ...req, enhancedPrompt: enhanced }, negative);
-      result.generationMs = Date.now() - start;
-      console.log('[Image Generated]');
-      console.log(`  provider: ${result.provider} time: ${result.generationMs}ms cost: $${result.costEstimate.toFixed(6)}`);
-      this.recordHistory({
-        kind: 'generate',
-        prompt: req.prompt,
-        enhancedPrompt: enhanced,
-        provider: result.provider,
-        size: req.size,
-        quality: req.quality,
-        style: req.style,
-        result,
-        generationMs: result.generationMs,
-      });
-      return result;
-    } catch (e) {
-      console.error('[Image Router] generation failed:', e);
-      if (decision.fallback && decision.fallback !== decision.provider) {
-        console.log(`[Image Router] falling back to ${decision.fallback}`);
-        const fallbackResult = await this.callGenerate(decision.fallback, { ...req, enhancedPrompt: enhanced }, negative);
-        fallbackResult.generationMs = Date.now() - start;
-        this.recordHistory({
-          kind: 'generate',
-          prompt: req.prompt,
-          enhancedPrompt: enhanced,
-          provider: fallbackResult.provider,
-          size: req.size,
-          quality: req.quality,
-          style: req.style,
-          result: fallbackResult,
-          generationMs: fallbackResult.generationMs,
-        });
-        return fallbackResult;
-      }
-      throw e;
-    }
+    const result = await this.callGenerate(decision.provider, { ...req, enhancedPrompt: enhanced }, negative);
+    result.generationMs = Date.now() - start;
+    console.log('[Image Generated]');
+    console.log(`  provider: ${result.provider} time: ${result.generationMs}ms cost: $${result.costEstimate.toFixed(6)}`);
+    this.recordHistory({
+      kind: 'generate',
+      prompt: req.prompt,
+      enhancedPrompt: enhanced,
+      provider: result.provider,
+      size: req.size,
+      quality: req.quality,
+      style: req.style,
+      result,
+      generationMs: result.generationMs,
+    });
+    return result;
   }
 
   async edit(req: EditImageRequest): Promise<GeneratedImage> {
@@ -259,11 +287,10 @@ class ImageRouter {
     const enhanced = enhancePrompt(req.prompt, req.style, 'standard');
 
     console.log('[Image Router]');
-    console.log('[Edit Request]');
-    console.log(`  prompt: ${req.prompt.slice(0, 120)}`);
-    console.log('[Provider Selected]');
-    console.log(`  provider: ${decision.provider}`);
+    console.log('  Provider: OpenAI Images API');
+    console.log('  Action: Edit');
     console.log('[Image Edited]');
+    console.log(`  prompt: ${req.prompt.slice(0, 120)}`);
 
     const start = Date.now();
     const result = await this.callEdit(decision.provider, { ...req, prompt: enhanced });
@@ -286,17 +313,16 @@ class ImageRouter {
     if (!decision.provider) throw new Error(decision.reason);
 
     console.log('[Image Router]');
-    console.log('[Image Analysis]');
+    console.log(`  Provider: ${decision.provider === 'gemini' ? 'Gemini Vision' : 'OpenAI GPT-4o Vision'}`);
+    console.log('  Action: Analyze');
     console.log(`  prompt: ${req.prompt.slice(0, 120)}`);
-    console.log('[Provider Selected]');
-    console.log(`  provider: ${decision.provider}`);
 
     const start = Date.now();
     try {
       const result = await this.callAnalyze(decision.provider, req);
       result.generationMs = Date.now() - start;
-      console.log(`  provider: ${result.provider} time: ${result.generationMs}ms`);
-      console.log(`[Image Analysis] OK — ${result.text.length} chars`);
+      console.log('[Image Analysis]');
+      console.log(`  provider: ${result.provider} time: ${result.generationMs}ms chars: ${result.text.length}`);
       this.recordHistory({
         kind: 'analyze',
         prompt: req.prompt,
@@ -342,8 +368,8 @@ class ImageRouter {
       const { generateWithOpenAI } = await import('./providers/openai');
       return generateWithOpenAI(req);
     }
-    const { generateWithGemini } = await import('./providers/gemini');
-    return generateWithGemini(req, negativePrompt);
+    // Gemini is NOT used for generation. This should never be reached.
+    throw new Error('Gemini is not used for image generation. Configure OPENAI_API_KEY.');
   }
 
   private async callEdit(provider: ImageProviderId, req: EditImageRequest): Promise<GeneratedImage> {
@@ -351,17 +377,17 @@ class ImageRouter {
       const { editWithOpenAI } = await import('./providers/openai');
       return editWithOpenAI(req);
     }
-    const { editWithGemini } = await import('./providers/gemini');
-    return editWithGemini(req);
+    // Gemini is NOT used for editing. This should never be reached.
+    throw new Error('Gemini is not used for image editing. Configure OPENAI_API_KEY.');
   }
 
   private async callAnalyze(provider: ImageProviderId, req: AnalyzeImageRequest): Promise<ImageAnalysisResult> {
-    if (provider === 'openai') {
-      const { analyzeWithOpenAI } = await import('./providers/openai');
-      return analyzeWithOpenAI(req);
+    if (provider === 'gemini') {
+      const { analyzeWithGemini } = await import('./providers/gemini');
+      return analyzeWithGemini(req);
     }
-    const { analyzeWithGemini } = await import('./providers/gemini');
-    return analyzeWithGemini(req);
+    const { analyzeWithOpenAI } = await import('./providers/openai');
+    return analyzeWithOpenAI(req);
   }
 
   private recordHistory(entry: Omit<ImageHistoryEntry, 'id' | 'createdAt'>): void {
@@ -376,3 +402,6 @@ class ImageRouter {
 
 export const imageRouter = new ImageRouter();
 export type { ImageRouter };
+
+
+export { imageRouter }
