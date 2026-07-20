@@ -33,20 +33,19 @@ export const imageService = {
     return imageRouter.analyze(req);
   },
 
-  /** DALL-E 2 variations — OpenAI only. */
+  /** gpt-image-1 variations — OpenAI only. */
   async createVariation(imageB64: string, mimeType: string): Promise<GeneratedImage> {
     const { getEnvVar } = await import('@/lib/env');
     const k = getEnvVar('OPENAI_API_KEY');
     if (!k) throw new Error('OPENAI_API_KEY is required for variations.');
 
     const form = new FormData();
-    form.append('model', 'dall-e-2');
+    form.append('model', 'gpt-image-1');
     form.append('image', `data:${mimeType};base64,${imageB64}`);
     form.append('n', '1');
     form.append('size', '1024x1024');
-    form.append('response_format', 'b64_json');
 
-    const res = await fetch('https://api.openai.com/v1/images/variations', {
+    const res = await fetch('https://api.openai.com/v1/images/edits', {
       method: 'POST',
       headers: { Authorization: `Bearer ${k}` },
       body: form,
@@ -65,7 +64,7 @@ export const imageService = {
       b64,
       mimeType: 'image/png',
       provider: 'openai',
-      costEstimate: 0.020,
+      costEstimate: 0.040,
       generationMs: 0,
     };
   },

@@ -123,7 +123,7 @@ async function main() {
   const decision = selectProvider(intent.mode as 'generate' | 'edit' | 'analyze');
   console.log(`  Step 3: Provider seleccionado: ${decision.provider ?? 'null'}`);
   console.log(`          reason: ${decision.reason}`);
-  console.log('  Step 4: Llamada a OpenAI Images API (dall-e-3)');
+  console.log('  Step 4: Llamada a OpenAI Images API (gpt-image-1)');
   console.log('  Step 5: Imagen generada → Frontend');
 
   if (intent.mode !== 'generate') {
@@ -151,7 +151,7 @@ async function main() {
     const result = await imageRouter.generate({
       prompt: userQuery,
       size: '1024x1024',
-      quality: 'standard',
+      quality: 'medium',
       style: 'fotografia',
     });
     console.log('\n  SUCCESS — image generated!');

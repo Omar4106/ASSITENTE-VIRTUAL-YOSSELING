@@ -216,7 +216,7 @@ export function selectProvider(mode: ImageMode | null): ImageRouterDecision {
 
 export function listProviders(): Array<{ id: ImageProviderId; name: string; configured: boolean; roles: string[] }> {
   return [
-    { id: 'openai', name: 'OpenAI (DALL-E 3 / gpt-image-1)', configured: hasOpenAI(), roles: ['generate', 'edit'] },
+    { id: 'openai', name: 'OpenAI (gpt-image-1)', configured: hasOpenAI(), roles: ['generate', 'edit'] },
     { id: 'gemini', name: 'Gemini (Vision / OCR)', configured: hasGemini(), roles: ['analyze'] },
   ];
 }
@@ -266,10 +266,10 @@ class ImageRouter {
     console.log(`  Prompt del usuario: ${req.prompt}`);
     console.log(`  Modo detectado: generate`);
     console.log(`  Proveedor seleccionado: OpenAI`);
-    console.log(`  Modelo seleccionado: dall-e-3`);
+    console.log(`  Modelo seleccionado: gpt-image-1`);
     console.log(`  Endpoint HTTP: https://api.openai.com/v1/images/generations`);
     console.log('[Generating Image]');
-    console.log(`  size: ${req.size ?? '1024x1024'} quality: ${req.quality ?? 'standard'} n: ${req.n ?? 1}`);
+    console.log(`  size: ${req.size ?? '1024x1024'} quality: ${req.quality ?? 'medium'} n: ${req.n ?? 1}`);
     console.log(`  enhanced prompt: ${enhanced.slice(0, 200)}`);
 
     const start = Date.now();
@@ -296,7 +296,7 @@ class ImageRouter {
     const decision = selectProvider('edit');
     if (!decision.provider) throw new Error(decision.reason);
 
-    const enhanced = enhancePrompt(req.prompt, req.style, 'standard');
+    const enhanced = enhancePrompt(req.prompt, req.style, 'medium');
 
     console.log('\n========================');
     console.log('IMAGE REQUEST');

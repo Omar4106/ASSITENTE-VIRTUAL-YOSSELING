@@ -14,8 +14,9 @@ import type {
 
 const OPENAI_IMAGES_ENDPOINT = 'https://api.openai.com/v1/images';
 
-const COST_GENERATE_STANDARD = 0.040;
-const COST_GENERATE_HD = 0.080;
+const COST_GENERATE_LOW = 0.011;
+const COST_GENERATE_MEDIUM = 0.042;
+const COST_GENERATE_HIGH = 0.167;
 const COST_EDIT = 0.040;
 const COST_ANALYZE = 0.005;
 
@@ -53,9 +54,9 @@ function traceFooter(status: number, statusText: string, rawBody: string): void 
 export async function generateWithOpenAI(req: GenerateImageRequest): Promise<GeneratedImage> {
   const k = apiKey();
   const size = req.size ?? '1024x1024';
-  const quality = req.quality ?? 'standard';
+  const quality = req.quality ?? 'medium';
   const prompt = req.enhancedPrompt ?? req.prompt;
-  const model = 'dall-e-3';
+  const model = 'gpt-image-1';
   const url = `${OPENAI_IMAGES_ENDPOINT}/generations`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -67,8 +68,6 @@ export async function generateWithOpenAI(req: GenerateImageRequest): Promise<Gen
     n: 1,
     size,
     quality,
-    style: 'vivid',
-    response_format: 'b64_json',
   };
 
   if (isTrace()) {
@@ -102,12 +101,18 @@ export async function generateWithOpenAI(req: GenerateImageRequest): Promise<Gen
   const item = data.data?.[0];
   if (!item?.b64_json) throw new Error('openai generate: no image returned');
 
+  const costMap: Record<string, number> = {
+    low: COST_GENERATE_LOW,
+    medium: COST_GENERATE_MEDIUM,
+    high: COST_GENERATE_HIGH,
+  };
+
   return {
     b64: item.b64_json,
     mimeType: 'image/png',
     revisedPrompt: item.revised_prompt,
     provider: 'openai',
-    costEstimate: quality === 'hd' ? COST_GENERATE_HD : COST_GENERATE_STANDARD,
+    costEstimate: costMap[quality] ?? COST_GENERATE_MEDIUM,
     generationMs: 0,
   };
 }

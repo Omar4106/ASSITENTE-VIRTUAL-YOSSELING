@@ -2,11 +2,7 @@
 
 import { useState, useRef, useCallback, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText,
-  Printer, X, Maximize2, Minimize2, Wand as Wand2, Sparkles, Edit3, Eye,
-  ChevronDown, Download, RefreshCw,
-} from 'lucide-react';
+import { Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText, Printer, X, Maximize2, Minimize2, Wand as Wand2, Sparkles, CreditCard as Edit3, Eye, ChevronDown, Download, RefreshCw } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { useVoice } from '@/hooks/useVoice';
 import { useFileUpload } from '@/hooks/useFileUpload';
@@ -31,13 +27,14 @@ const STYLE_OPTIONS: { value: ImageStyle; label: string }[] = [
 
 const SIZE_OPTIONS: { value: ImageSize; label: string }[] = [
   { value: '1024x1024', label: 'Cuadrada 1024×1024' },
-  { value: '1024x1792', label: 'Vertical 1024×1792' },
-  { value: '1792x1024', label: 'Horizontal 1792×1024' },
+  { value: '1024x1536', label: 'Vertical 1024×1536' },
+  { value: '1536x1024', label: 'Horizontal 1536×1024' },
 ];
 
 const QUALITY_OPTIONS: { value: ImageQuality; label: string }[] = [
-  { value: 'standard', label: 'Estándar' },
-  { value: 'hd', label: 'HD' },
+  { value: 'low', label: 'Baja' },
+  { value: 'medium', label: 'Media' },
+  { value: 'high', label: 'Alta' },
 ];
 
 const MODE_OPTIONS: { value: ImageMode; label: string; icon: React.ReactNode; desc: string }[] = [
@@ -62,7 +59,7 @@ export function InputBar() {
   const [showImageOptions, setShowImageOptions] = useState(false);
   const [style, setStyle] = useState<ImageStyle>('realista');
   const [size, setSize] = useState<ImageSize>('1024x1024');
-  const [quality, setQuality] = useState<ImageQuality>('standard');
+  const [quality, setQuality] = useState<ImageQuality>('medium');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);

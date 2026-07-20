@@ -101,8 +101,9 @@ const STYLE_PRESETS: Record<ImageStyle, StylePreset> = {
 };
 
 const QUALITY_MODIFIERS: Record<string, string[]> = {
-  hd: ['ultra high definition', 'sharp focus', 'maximum detail'],
-  standard: ['high quality', 'well-composed'],
+  high: ['ultra high definition', 'sharp focus', 'maximum detail'],
+  medium: ['high quality', 'well-composed'],
+  low: ['simple', 'clean'],
 };
 
 const COMPOSITION_TAIL = 'centered composition, professional color grading, masterpiece';
@@ -118,7 +119,7 @@ const COMPOSITION_TAIL = 'centered composition, professional color grading, mast
 export function enhancePrompt(
   userPrompt: string,
   style?: ImageStyle,
-  quality?: 'standard' | 'hd',
+  quality?: 'low' | 'medium' | 'high',
 ): string {
   const subject = userPrompt.trim();
   if (!subject) return '';
@@ -132,7 +133,7 @@ export function enhancePrompt(
 
   parts.push(subject);
 
-  const qMods = QUALITY_MODIFIERS[quality ?? 'standard'] ?? QUALITY_MODIFIERS.standard;
+  const qMods = QUALITY_MODIFIERS[quality ?? 'medium'] ?? QUALITY_MODIFIERS.medium;
   parts.push(...qMods);
   parts.push(COMPOSITION_TAIL);
 

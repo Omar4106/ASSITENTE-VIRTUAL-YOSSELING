@@ -8,8 +8,8 @@
  *     imageB64?: string,   (required for edit/analyze)
  *     mimeType?: string,
  *     maskB64?: string,    (optional for edit)
- *     size?: '1024x1024' | '1024x1792' | '1792x1024',
- *     quality?: 'standard' | 'hd',
+ *     size?: '1024x1024' | '1024x1536' | '1536x1024',
+ *     quality?: 'low' | 'medium' | 'high',
  *     style?: ImageStyle,
  *     n?: 1 | 2 | 4,
  *   }
