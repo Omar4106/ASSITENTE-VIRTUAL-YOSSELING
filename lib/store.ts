@@ -262,6 +262,22 @@ export const useAppStore = create<AppState>()(
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
+        // ── Image redirect: the Chat Router detected an image intent and
+        // delegated to the Image Router. We call /api/images directly and
+        // render the result as an image attachment on the assistant message.
+        const contentType = response.headers.get('Content-Type') ?? '';
+        if (contentType.includes('application/json')) {
+          const data = await response.json() as { redirect?: string; action?: string; prompt?: string; provider?: string | null };
+          if (data.redirect === '/api/images' && data.action) {
+            await handleImageRedirect({
+              action: data.action,
+              prompt: data.prompt ?? '',
+              provider: data.provider ?? null,
+            }, chatId!, assistantMsg.id, files, startTime);
+            return;
+          }
+        }
+
         const usedProvider = (response.headers.get('X-Provider') ?? state.selectedProvider) as Provider;
         const usedModel = response.headers.get('X-Model') ?? state.selectedModel;
         const fallbackUsed = response.headers.get('X-Fallback-Used') === 'true';
@@ -545,6 +561,115 @@ export const useAppStore = create<AppState>()(
     setSearchQuery: (q) => set({ searchQuery: q }),
   }))
 );
+
+// ── Image redirect handler ──────────────────────────────────────────────────
+// When the Chat Router detects an image intent, it returns a JSON redirect
+// instead of a stream. This function calls /api/images and renders the result
+// as an image attachment on the assistant message.
+async function handleImageRedirect(
+  redirect: { action: string; prompt: string; provider?: string | null },
+  chatId: string,
+  assistantMsgId: string,
+  userFiles: AttachedFile[] | undefined,
+  startTime: number,
+) {
+  const updateAssistant = (updates: Partial<Message>) => {
+    useAppStore.setState(s => ({
+      chats: s.chats.map(c => {
+        if (c.id !== chatId) return c;
+        return {
+          ...c,
+          messages: c.messages.map(m =>
+            m.id === assistantMsgId ? { ...m, ...updates } as Message : m
+          ),
+        };
+      }),
+    }));
+  };
+
+  try {
+    // For edit/analyze we need the first attached image's base64.
+    const attachedImage = userFiles?.find(f => f.type.startsWith('image/') && f.dataUrl);
+    const imageB64 = attachedImage?.dataUrl?.split(',')[1] ?? '';
+    const mimeType = attachedImage?.dataUrl?.match(/data:([^;]+)/)?.[1] ?? 'image/png';
+
+    const res = await fetch('/api/images', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: redirect.action,
+        prompt: redirect.prompt,
+        imageB64: imageB64 || undefined,
+        mimeType,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      updateAssistant({
+        content: `No pude procesar la imagen: ${data.error ?? res.statusText}`,
+        isStreaming: false,
+        responseTime: Date.now() - startTime,
+      });
+      return;
+    }
+
+    if (redirect.action === 'analyze') {
+      updateAssistant({
+        content: data.analysis ?? 'No se pudo analizar la imagen.',
+        isStreaming: false,
+        responseTime: Date.now() - startTime,
+        provider: data.provider ?? 'gemini',
+      });
+      return;
+    }
+
+    // generate / edit → attach the image as a data URL
+    const b64 = data.image?.b64;
+    const imgMime = data.image?.mimeType ?? 'image/png';
+    if (!b64) {
+      updateAssistant({
+        content: 'El proveedor no devolvió ninguna imagen. Intenta con otro prompt.',
+        isStreaming: false,
+        responseTime: Date.now() - startTime,
+      });
+      return;
+    }
+
+    const dataUrl = `data:${imgMime};base64,${b64}`;
+    const imageAttachment: AttachedFile = {
+      id: Math.random().toString(36).slice(2, 11),
+      name: `imagen-${Date.now()}.png`,
+      type: imgMime,
+      size: Math.floor(b64.length * 0.75),
+      dataUrl,
+    };
+
+    const providerTag = data.image?.provider ?? redirect.provider ?? 'openai';
+    const revised = data.image?.revisedPrompt ? `\n\n_Prompt mejorado:_ ${data.image.revisedPrompt}` : '';
+    const cost = data.image?.costEstimate ? `\n_Proveedor:_ ${providerTag} · _Costo:_ $${data.image.costEstimate.toFixed(4)} · _Tiempo:_ ${data.image.generationMs ?? (Date.now() - startTime)}ms` : '';
+
+    updateAssistant({
+      content: `Imagen generada.${revised}${cost}`,
+      isStreaming: false,
+      responseTime: Date.now() - startTime,
+      provider: providerTag as Provider,
+      attachments: [imageAttachment],
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    updateAssistant({
+      content: `Error al generar imagen: ${msg}`,
+      isStreaming: false,
+      responseTime: Date.now() - startTime,
+    });
+  } finally {
+    useAppStore.setState({ isStreaming: false, abortController: null });
+    const chat = useAppStore.getState().chats.find(c => c.id === chatId);
+    if (chat) await saveChat(chat);
+  }
+}
 
 export const useActiveChat = () =>
   useAppStore(s => s.chats.find(c => c.id === s.activeChatId) ?? null);

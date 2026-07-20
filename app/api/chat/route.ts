@@ -25,6 +25,7 @@ import { realtimeService } from '@/src/services/realtime';
 import { optimizeContext, buildTokenReport, formatTokenReport, type ContextMessage } from '@/src/services/context';
 import { routeModel } from '@/src/services/router';
 import { validateResponse } from '@/src/services/validator';
+import { imageRouter } from '@/src/services/images';
 import type { Provider, TaskType } from '@/types';
 
 export const runtime = 'nodejs';
@@ -297,6 +298,34 @@ export async function POST(req: NextRequest) {
 
     // ── 1. Task detection ───────────────────────────────────────────────────
     const taskType: TaskType = detectTaskType(lastUserText);
+
+    // ── 1a. Image intent detection (ImageRouter) ─────────────────────────────
+    // The ImageRouter handles generate / edit / analyze intents. When it
+    // detects an image intent, we short-circuit: the Chat Router does NOT
+    // call the LLM — it delegates to the Image Router which talks to
+    // OpenAI Images or Gemini directly.
+    const imageIntent = imageRouter.detect(lastUserText, hasImages);
+    if (imageIntent.needsImage && imageIntent.mode) {
+      console.log('[Image Router]');
+      console.log('[Prompt Detected]');
+      console.log(`  mode: ${imageIntent.mode} confidence: ${imageIntent.confidence}`);
+      console.log(`  keywords: [${imageIntent.matchedKeywords.join(', ')}]`);
+
+      const decision = imageRouter.selectProvider(imageIntent.mode);
+      if (!decision.provider) {
+        return NextResponse.json({
+          error: decision.reason,
+        }, { status: 503 });
+      }
+
+      return NextResponse.json({
+        redirect: '/api/images',
+        action: imageIntent.mode,
+        prompt: imageIntent.prompt,
+        provider: decision.provider,
+        reason: decision.reason,
+      }, { status: 200 });
+    }
 
     // If the user is asking for image generation, redirect to the ImageService.
     if (taskType === 'image_gen') {

@@ -2,11 +2,49 @@
 
 import { useState, useRef, useCallback, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText, Printer, X, Maximize2, Minimize2, Wand as Wand2 } from 'lucide-react';
+import {
+  Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText,
+  Printer, X, Maximize2, Minimize2, Wand as Wand2, Sparkles, Edit3, Eye,
+  ChevronDown, Download, RefreshCw,
+} from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { useVoice } from '@/hooks/useVoice';
 import { useFileUpload } from '@/hooks/useFileUpload';
 import { cn } from '@/lib/utils';
+import type { ImageStyle, ImageSize, ImageQuality, ImageMode } from '@/src/services/images/types';
+
+const STYLE_OPTIONS: { value: ImageStyle; label: string }[] = [
+  { value: 'realista', label: 'Realista' },
+  { value: 'anime', label: 'Anime' },
+  { value: 'disney', label: 'Disney' },
+  { value: 'pixel-art', label: 'Pixel Art' },
+  { value: 'cyberpunk', label: 'Cyberpunk' },
+  { value: 'futurista', label: 'Futurista' },
+  { value: 'minimalista', label: 'Minimalista' },
+  { value: 'fotografia', label: 'Fotografía' },
+  { value: 'arquitectura', label: 'Arquitectura' },
+  { value: 'logo', label: 'Logo' },
+  { value: 'vector', label: 'Vector' },
+  { value: '3d', label: '3D' },
+  { value: 'concept-art', label: 'Concept Art' },
+];
+
+const SIZE_OPTIONS: { value: ImageSize; label: string }[] = [
+  { value: '1024x1024', label: 'Cuadrada 1024×1024' },
+  { value: '1024x1792', label: 'Vertical 1024×1792' },
+  { value: '1792x1024', label: 'Horizontal 1792×1024' },
+];
+
+const QUALITY_OPTIONS: { value: ImageQuality; label: string }[] = [
+  { value: 'standard', label: 'Estándar' },
+  { value: 'hd', label: 'HD' },
+];
+
+const MODE_OPTIONS: { value: ImageMode; label: string; icon: React.ReactNode; desc: string }[] = [
+  { value: 'generate', label: 'Crear', icon: <Sparkles size={14} />, desc: 'Generar una imagen nueva' },
+  { value: 'edit', label: 'Editar', icon: <Edit3 size={14} />, desc: 'Modificar una imagen adjunta' },
+  { value: 'analyze', label: 'Analizar', icon: <Eye size={14} />, desc: 'Describir y analizar una imagen' },
+];
 
 export function InputBar() {
   const {
@@ -20,7 +58,11 @@ export function InputBar() {
   const [input, setInput] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [imageMode, setImageMode] = useState<null | 'generate' | 'edit' | 'analyze'>(null);
+  const [imageMode, setImageMode] = useState<null | ImageMode>(null);
+  const [showImageOptions, setShowImageOptions] = useState(false);
+  const [style, setStyle] = useState<ImageStyle>('realista');
+  const [size, setSize] = useState<ImageSize>('1024x1024');
+  const [quality, setQuality] = useState<ImageQuality>('standard');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -34,11 +76,12 @@ export function InputBar() {
     clearPendingFiles();
     await sendMessage(content, files.length > 0 ? files : undefined);
     setImageMode(null);
+    setShowImageOptions(false);
   }, [input, pendingFiles, isStreaming, clearPendingFiles, sendMessage]);
 
-  const handleImageAction = useCallback((mode: 'generate' | 'edit' | 'analyze') => {
+  const handleImageAction = useCallback((mode: ImageMode) => {
     setImageMode(mode);
-    const placeholders: Record<typeof mode, string> = {
+    const placeholders: Record<ImageMode, string> = {
       generate: 'Describe la imagen que quieres crear… (ej: "un hotel moderno frente al mar")',
       edit: 'Describe el cambio que quieres aplicar a la imagen adjunta…',
       analyze: 'Adjunta una imagen y describe qué quieres saber sobre ella…',
@@ -111,6 +154,68 @@ export function InputBar() {
         )}
       </AnimatePresence>
 
+      {/* Image options panel */}
+      <AnimatePresence>
+        {imageMode && showImageOptions && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-3 rounded-xl border border-purple-500/20 overflow-hidden"
+            style={{ background: 'rgba(18,14,32,0.85)' }}
+          >
+            <div className="p-3 space-y-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-purple-300/70 mb-1.5 block">Estilo</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {STYLE_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setStyle(opt.value)}
+                      className={cn(
+                        'px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all',
+                        style === opt.value
+                          ? 'bg-gradient-to-br from-purple-600 to-fuchsia-600 text-white shadow-md shadow-purple-500/30'
+                          : 'bg-white/5 text-[#B3B3B3] hover:bg-white/10 hover:text-white'
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-purple-300/70 mb-1.5 block">Tamaño</label>
+                  <select
+                    value={size}
+                    onChange={e => setSize(e.target.value as ImageSize)}
+                    className="w-full bg-[#0D0E14] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-purple-500/50"
+                  >
+                    {SIZE_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-purple-300/70 mb-1.5 block">Calidad</label>
+                  <select
+                    value={quality}
+                    onChange={e => setQuality(e.target.value as ImageQuality)}
+                    className="w-full bg-[#0D0E14] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-purple-500/50"
+                  >
+                    {QUALITY_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Main input */}
       <div
         className={cn(
@@ -153,14 +258,25 @@ export function InputBar() {
               exit={{ opacity: 0, height: 0 }}
               className="flex items-center justify-between px-4 py-1.5 bg-gradient-to-r from-purple-500/10 to-fuchsia-500/10 border-t border-purple-500/20"
             >
-              <span className="text-[11px] text-purple-300 flex items-center gap-1.5">
-                <Wand2 size={12} />
-                {imageMode === 'generate' && 'Modo: Crear imagen'}
-                {imageMode === 'edit' && 'Modo: Editar imagen'}
-                {imageMode === 'analyze' && 'Modo: Analizar imagen'}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] text-purple-300 flex items-center gap-1.5">
+                  <Wand2 size={12} />
+                  {imageMode === 'generate' && 'Modo: Crear imagen'}
+                  {imageMode === 'edit' && 'Modo: Editar imagen'}
+                  {imageMode === 'analyze' && 'Modo: Analizar imagen'}
+                </span>
+                {imageMode === 'generate' && (
+                  <button
+                    onClick={() => setShowImageOptions(!showImageOptions)}
+                    className="text-[11px] text-purple-300/70 hover:text-purple-200 flex items-center gap-0.5 transition-colors"
+                  >
+                    Opciones
+                    <ChevronDown size={11} className={cn('transition-transform', showImageOptions && 'rotate-180')} />
+                  </button>
+                )}
+              </div>
               <button
-                onClick={() => { setImageMode(null); setInput(''); }}
+                onClick={() => { setImageMode(null); setShowImageOptions(false); setInput(''); }}
                 className="text-[11px] text-[#B3B3B3] hover:text-white transition-colors"
               >
                 Cancelar
@@ -190,11 +306,26 @@ export function InputBar() {
           </div>
 
           <div className="flex items-center gap-1">
+            {/* Mode selector dropdown */}
+            <div className="relative">
+              <ToolBtn
+                icon={<Wand2 size={15} className="text-fuchsia-400" />}
+                label="Crear imagen"
+                onClick={() => handleImageAction('generate')}
+                active={imageMode === 'generate'}
+              />
+            </div>
             <ToolBtn
-              icon={<Wand2 size={15} className="text-fuchsia-400" />}
-              label="Crear imagen"
-              onClick={() => handleImageAction('generate')}
-              active={imageMode === 'generate'}
+              icon={<Edit3 size={15} className={imageMode === 'edit' ? 'text-fuchsia-400' : undefined} />}
+              label="Editar imagen"
+              onClick={() => handleImageAction('edit')}
+              active={imageMode === 'edit'}
+            />
+            <ToolBtn
+              icon={<Eye size={15} className={imageMode === 'analyze' ? 'text-fuchsia-400' : undefined} />}
+              label="Analizar imagen"
+              onClick={() => handleImageAction('analyze')}
+              active={imageMode === 'analyze'}
             />
           </div>
 
@@ -251,7 +382,7 @@ function ToolBtn({ icon, label, onClick, active }: {
       onClick={onClick}
       className={cn(
         'p-2 rounded-lg transition-colors text-sm',
-        active ? 'bg-red-500/20 text-red-400' : 'text-[#B3B3B3] hover:text-white hover:bg-white/5'
+        active ? 'bg-fuchsia-500/20 text-fuchsia-300' : 'text-[#B3B3B3] hover:text-white hover:bg-white/5'
       )}
     >
       {icon}

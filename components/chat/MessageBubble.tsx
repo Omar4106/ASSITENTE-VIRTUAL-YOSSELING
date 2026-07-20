@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Check, RefreshCw, CreditCard as Edit2, Trash2, Volume2, ThumbsUp, ThumbsDown, MoveHorizontal as MoreHorizontal, User } from 'lucide-react';
+import { Copy, Check, RefreshCw, CreditCard as Edit2, Trash2, Volume2, ThumbsUp, ThumbsDown, MoveHorizontal as MoreHorizontal, User, Download } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { PROVIDERS } from '@/lib/ai-providers';
 import type { Message } from '@/types';
@@ -202,13 +202,48 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
 
           {/* Attachments */}
           {message.attachments && message.attachments.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {message.attachments.map(file => (
-                <div key={file.id} className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2 py-1.5 text-xs">
-                  <span className="text-purple-300">📎</span>
-                  <span className="text-white/80 truncate max-w-[120px]">{file.name}</span>
-                </div>
-              ))}
+            <div className="mt-3 space-y-2">
+              {message.attachments.map(file => {
+                const isImage = file.type.startsWith('image/') && file.dataUrl;
+                if (isImage) {
+                  return (
+                    <div key={file.id} className="relative group/img rounded-xl overflow-hidden border border-white/10">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={file.dataUrl}
+                        alt={file.name}
+                        className="w-full max-w-md mx-auto rounded-xl"
+                        style={{ maxHeight: '400px', objectFit: 'contain' }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity flex items-end justify-end gap-1.5 p-2">
+                        <a
+                          href={file.dataUrl}
+                          download={file.name}
+                          className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 transition-colors"
+                          title="Descargar"
+                        >
+                          <Download size={14} />
+                        </a>
+                        {!isUser && (
+                          <button
+                            onClick={() => regenerateResponse(chatId, message.id)}
+                            className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 transition-colors"
+                            title="Regenerar"
+                          >
+                            <RefreshCw size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={file.id} className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2 py-1.5 text-xs">
+                    <span className="text-purple-300">📎</span>
+                    <span className="text-white/80 truncate max-w-[120px]">{file.name}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

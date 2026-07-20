@@ -1,12 +1,15 @@
+export { imageRouter } from './ImageRouter';
+export type { ImageRouter } from './ImageRouter';
+export { imageService } from './ImageService';
 export {
-  imageGenerationService,
-  recordImageHistory,
-  getImageHistory,
-  type GenerateImageRequest,
-  type GeneratedImage,
-  type AnalyzeImageRequest,
-  type ImageHistoryEntry,
-  type ImageSize,
-  type ImageQuality,
-  type ImageStyle,
-} from './ImageGenerationService';
+  enhancePrompt, buildNegativePrompt, getStylePresets, getPresetLabel,
+} from './PromptEnhancer';
+export {
+  detectImageIntent, selectProvider, listProviders,
+} from './ImageRouter';
+export type {
+  AnalyzeImageRequest, EditImageRequest, GenerateImageRequest,
+  GeneratedImage, ImageAnalysisResult, ImageHistoryEntry, ImageIntent,
+  ImageMode, ImageProviderId, ImageQuality, ImageRouterDecision,
+  ImageSize, ImageStyle,
+} from './types';
