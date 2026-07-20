@@ -33,6 +33,9 @@ import { enhancePrompt, buildNegativePrompt } from './PromptEnhancer';
 
 const GENERATE_KEYWORDS = [
   'crea una imagen', 'crea imagen', 'genera una imagen', 'genera imagen',
+  'créame una imagen', 'creame una imagen', 'créame una foto', 'creame una foto',
+  'créame un logo', 'creame un logo',
+  'créame una ilustración', 'creame una ilustración',
   'crea un logo', 'crea logo', 'diseña un logo', 'diseña logo',
   'genera un logo', 'genera logo',
   'crea una ilustración', 'crea ilustracion', 'crea una ilustracion',
@@ -73,6 +76,7 @@ const ANALYZE_KEYWORDS = [
 
 const GENERATE_PATTERNS = [
   /crea\w*\s+(una\s+)?imagen\s+de/i,
+  /cr[eé]ame\s+(una\s+)?(imagen|foto|fotografía|fotografia|ilustración|ilustracion|logo|dibujo|wallpaper|banner|flyer|póster|poster|portada)\b/i,
   /genera\w*\s+(una\s+)?(imagen|logo|dibujo|ilustración|ilustracion|wallpaper|banner|flyer|póster|poster|portada|fotografía|fotografia)\b/i,
   /dibuja\s+\w+/i,
   /diseña\s+\w+/i,
@@ -252,20 +256,28 @@ class ImageRouter {
     const enhanced = req.enhancedPrompt ?? enhancePrompt(req.prompt, req.style, req.quality);
     const negative = buildNegativePrompt(req.style);
 
+    console.log('\n========================');
+    console.log('IMAGE REQUEST');
+    console.log('========================');
     console.log('[Image Router]');
     console.log('  Provider: OpenAI Images API');
     console.log('  Action: Generate');
     console.log('[Prompt Detected]');
-    console.log(`  original: ${req.prompt.slice(0, 120)}`);
-    console.log(`  enhanced: ${enhanced.slice(0, 200)}`);
+    console.log(`  Prompt del usuario: ${req.prompt}`);
+    console.log(`  Modo detectado: generate`);
+    console.log(`  Proveedor seleccionado: OpenAI`);
+    console.log(`  Modelo seleccionado: dall-e-3`);
+    console.log(`  Endpoint HTTP: https://api.openai.com/v1/images/generations`);
     console.log('[Generating Image]');
     console.log(`  size: ${req.size ?? '1024x1024'} quality: ${req.quality ?? 'standard'} n: ${req.n ?? 1}`);
+    console.log(`  enhanced prompt: ${enhanced.slice(0, 200)}`);
 
     const start = Date.now();
     const result = await this.callGenerate(decision.provider, { ...req, enhancedPrompt: enhanced }, negative);
     result.generationMs = Date.now() - start;
     console.log('[Image Generated]');
     console.log(`  provider: ${result.provider} time: ${result.generationMs}ms cost: $${result.costEstimate.toFixed(6)}`);
+    console.log('========================\n');
     this.recordHistory({
       kind: 'generate',
       prompt: req.prompt,
@@ -286,16 +298,24 @@ class ImageRouter {
 
     const enhanced = enhancePrompt(req.prompt, req.style, 'standard');
 
+    console.log('\n========================');
+    console.log('IMAGE REQUEST');
+    console.log('========================');
     console.log('[Image Router]');
     console.log('  Provider: OpenAI Images API');
     console.log('  Action: Edit');
+    console.log(`  Prompt del usuario: ${req.prompt}`);
+    console.log(`  Modo detectado: edit`);
+    console.log(`  Proveedor seleccionado: OpenAI`);
+    console.log(`  Modelo seleccionado: gpt-image-1`);
+    console.log(`  Endpoint HTTP: https://api.openai.com/v1/images/edits`);
     console.log('[Image Edited]');
-    console.log(`  prompt: ${req.prompt.slice(0, 120)}`);
 
     const start = Date.now();
     const result = await this.callEdit(decision.provider, { ...req, prompt: enhanced });
     result.generationMs = Date.now() - start;
     console.log(`  provider: ${result.provider} time: ${result.generationMs}ms`);
+    console.log('========================\n');
     this.recordHistory({
       kind: 'edit',
       prompt: req.prompt,
@@ -312,10 +332,17 @@ class ImageRouter {
     const decision = selectProvider('analyze');
     if (!decision.provider) throw new Error(decision.reason);
 
+    console.log('\n========================');
+    console.log('IMAGE REQUEST');
+    console.log('========================');
     console.log('[Image Router]');
     console.log(`  Provider: ${decision.provider === 'gemini' ? 'Gemini Vision' : 'OpenAI GPT-4o Vision'}`);
     console.log('  Action: Analyze');
-    console.log(`  prompt: ${req.prompt.slice(0, 120)}`);
+    console.log(`  Prompt del usuario: ${req.prompt}`);
+    console.log(`  Modo detectado: analyze`);
+    console.log(`  Proveedor seleccionado: ${decision.provider === 'gemini' ? 'Gemini' : 'OpenAI'}`);
+    console.log(`  Modelo seleccionado: ${decision.provider === 'gemini' ? 'gemini-2.5-flash-preview-05-20' : 'gpt-4o-mini'}`);
+    console.log(`  Endpoint HTTP: ${decision.provider === 'gemini' ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent' : 'https://api.openai.com/v1/chat/completions'}`);
 
     const start = Date.now();
     try {
@@ -323,6 +350,7 @@ class ImageRouter {
       result.generationMs = Date.now() - start;
       console.log('[Image Analysis]');
       console.log(`  provider: ${result.provider} time: ${result.generationMs}ms chars: ${result.text.length}`);
+      console.log('========================\n');
       this.recordHistory({
         kind: 'analyze',
         prompt: req.prompt,
@@ -402,6 +430,3 @@ class ImageRouter {
 
 export const imageRouter = new ImageRouter();
 export type { ImageRouter };
-
-
-export { imageRouter }

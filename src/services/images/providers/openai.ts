@@ -2,6 +2,9 @@
  * OpenAI image provider — DALL-E 3 generation, gpt-image-1 edit, GPT-4o vision.
  *
  * All calls use server-side OPENAI_API_KEY only.
+ *
+ * TRACE mode: set env var IMAGE_TRACE=1 to print the full HTTP request and
+ * response for every call. API keys are redacted in the trace output.
  */
 import { getEnvVar } from '@/lib/env';
 import type {
@@ -11,11 +14,10 @@ import type {
 
 const OPENAI_IMAGES_ENDPOINT = 'https://api.openai.com/v1/images';
 
-// Cost estimates per operation (USD) — used for the X-Cost header and history.
 const COST_GENERATE_STANDARD = 0.040;
 const COST_GENERATE_HD = 0.080;
 const COST_EDIT = 0.040;
-const COST_ANALYZE = 0.005; // GPT-4o-mini vision ~5k tokens
+const COST_ANALYZE = 0.005;
 
 function apiKey(): string {
   const k = getEnvVar('OPENAI_API_KEY');
@@ -23,37 +25,80 @@ function apiKey(): string {
   return k;
 }
 
+function isTrace(): boolean {
+  return getEnvVar('IMAGE_TRACE') === '1' || process.env.IMAGE_TRACE === '1';
+}
+
+function redact(key: string): string {
+  if (!key) return '(empty)';
+  if (key.length <= 10) return '***';
+  return `${key.slice(0, 6)}…${key.slice(-4)} (len=${key.length})`;
+}
+
+function traceBanner(label: string): void {
+  if (!isTrace()) return;
+  console.log('\n========================');
+  console.log(`IMAGE REQUEST — ${label}`);
+  console.log('========================');
+}
+
+function traceFooter(status: number, statusText: string, rawBody: string): void {
+  if (!isTrace()) return;
+  console.log(`HTTP Status: ${status} ${statusText}`);
+  console.log('Respuesta RAW:');
+  console.log(rawBody.slice(0, 2000));
+  console.log('========================\n');
+}
+
 export async function generateWithOpenAI(req: GenerateImageRequest): Promise<GeneratedImage> {
   const k = apiKey();
   const size = req.size ?? '1024x1024';
   const quality = req.quality ?? 'standard';
   const prompt = req.enhancedPrompt ?? req.prompt;
-
+  const model = 'dall-e-3';
+  const url = `${OPENAI_IMAGES_ENDPOINT}/generations`;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${k}`,
+  };
   const body: Record<string, unknown> = {
-    model: 'dall-e-3',
+    model,
     prompt,
-    n: 1, // DALL-E 3 only supports n=1
+    n: 1,
     size,
     quality,
     style: 'vivid',
     response_format: 'b64_json',
   };
 
-  const res = await fetch(`${OPENAI_IMAGES_ENDPOINT}/generations`, {
+  if (isTrace()) {
+    traceBanner('GENERATE');
+    console.log(`Provider: OpenAI Images API`);
+    console.log(`Model: ${model}`);
+    console.log(`Endpoint: ${url}`);
+    console.log('Headers:', JSON.stringify({
+      'Content-Type': headers['Content-Type'],
+      Authorization: `Bearer ${redact(k)}`,
+    }, null, 2));
+    console.log('Body enviado:', JSON.stringify({ ...body, prompt: prompt.slice(0, 300) + (prompt.length > 300 ? '…' : '') }, null, 2));
+  }
+
+  const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${k}`,
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
+  const rawText = await res.text().catch(() => '');
+  if (isTrace()) traceFooter(res.status, res.statusText, rawText);
+
   if (!res.ok) {
-    const err = await res.text().catch(() => '');
-    throw new Error(`openai generate: ${res.status} ${err.slice(0, 200)}`);
+    throw new Error(`openai generate: ${res.status} ${rawText.slice(0, 200)}`);
   }
 
-  const data = await res.json() as { data?: Array<{ b64_json?: string; revised_prompt?: string }> };
+  let data: { data?: Array<{ b64_json?: string; revised_prompt?: string }> };
+  try { data = JSON.parse(rawText); } catch { throw new Error('openai generate: invalid JSON response'); }
+
   const item = data.data?.[0];
   if (!item?.b64_json) throw new Error('openai generate: no image returned');
 
@@ -69,27 +114,44 @@ export async function generateWithOpenAI(req: GenerateImageRequest): Promise<Gen
 
 export async function editWithOpenAI(req: EditImageRequest): Promise<GeneratedImage> {
   const k = apiKey();
+  const model = 'gpt-image-1';
+  const url = `${OPENAI_IMAGES_ENDPOINT}/edits`;
 
   const form = new FormData();
-  form.append('model', 'gpt-image-1');
+  form.append('model', model);
   form.append('prompt', req.prompt);
   form.append('image', `data:${req.mimeType};base64,${req.imageB64}`);
   if (req.maskB64) form.append('mask', `data:${req.mimeType};base64,${req.maskB64}`);
   form.append('n', '1');
   form.append('size', '1024x1024');
 
-  const res = await fetch(`${OPENAI_IMAGES_ENDPOINT}/edits`, {
+  if (isTrace()) {
+    traceBanner('EDIT');
+    console.log(`Provider: OpenAI Images API`);
+    console.log(`Model: ${model}`);
+    console.log(`Endpoint: ${url}`);
+    console.log('Headers:', JSON.stringify({ Authorization: `Bearer ${redact(k)}` }, null, 2));
+    console.log('Body enviado: multipart/form-data (image + prompt + n=1 + size=1024x1024)');
+    console.log(`  prompt: ${req.prompt.slice(0, 200)}`);
+    console.log(`  imageB64 length: ${req.imageB64.length}`);
+  }
+
+  const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${k}` },
     body: form,
   });
 
+  const rawText = await res.text().catch(() => '');
+  if (isTrace()) traceFooter(res.status, res.statusText, rawText);
+
   if (!res.ok) {
-    const err = await res.text().catch(() => '');
-    throw new Error(`openai edit: ${res.status} ${err.slice(0, 200)}`);
+    throw new Error(`openai edit: ${res.status} ${rawText.slice(0, 200)}`);
   }
 
-  const data = await res.json() as { data?: Array<{ b64_json?: string }> };
+  let data: { data?: Array<{ b64_json?: string }> };
+  try { data = JSON.parse(rawText); } catch { throw new Error('openai edit: invalid JSON response'); }
+
   const b64 = data.data?.[0]?.b64_json;
   if (!b64) throw new Error('openai edit: no image returned');
 
@@ -104,9 +166,14 @@ export async function editWithOpenAI(req: EditImageRequest): Promise<GeneratedIm
 
 export async function analyzeWithOpenAI(req: AnalyzeImageRequest): Promise<ImageAnalysisResult> {
   const k = apiKey();
-
+  const model = 'gpt-4o-mini';
+  const url = 'https://api.openai.com/v1/chat/completions';
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${k}`,
+  };
   const body = {
-    model: 'gpt-4o-mini',
+    model,
     messages: [
       {
         role: 'user',
@@ -119,21 +186,34 @@ export async function analyzeWithOpenAI(req: AnalyzeImageRequest): Promise<Image
     max_tokens: 1024,
   };
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  if (isTrace()) {
+    traceBanner('ANALYZE (OpenAI fallback)');
+    console.log(`Provider: OpenAI GPT-4o Vision`);
+    console.log(`Model: ${model}`);
+    console.log(`Endpoint: ${url}`);
+    console.log('Headers:', JSON.stringify({
+      'Content-Type': headers['Content-Type'],
+      Authorization: `Bearer ${redact(k)}`,
+    }, null, 2));
+    console.log('Body enviado:', JSON.stringify({ ...body, messages: '[redacted — contains image b64]' }, null, 2));
+  }
+
+  const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${k}`,
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
+  const rawText = await res.text().catch(() => '');
+  if (isTrace()) traceFooter(res.status, res.statusText, rawText);
+
   if (!res.ok) {
-    const err = await res.text().catch(() => '');
-    throw new Error(`openai analyze: ${res.status} ${err.slice(0, 200)}`);
+    throw new Error(`openai analyze: ${res.status} ${rawText.slice(0, 200)}`);
   }
 
-  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+  let data: { choices?: Array<{ message?: { content?: string } }> };
+  try { data = JSON.parse(rawText); } catch { throw new Error('openai analyze: invalid JSON response'); }
+
   const text = data.choices?.[0]?.message?.content ?? '';
   if (!text) throw new Error('openai analyze: no text returned');
 

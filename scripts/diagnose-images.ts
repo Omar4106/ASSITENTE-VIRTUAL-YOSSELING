@@ -1,11 +1,11 @@
 /* eslint-disable no-console */
 /**
- * Diagnostic script — verifies the ImageRouter routing policy:
- *   generate → OpenAI
- *   edit     → OpenAI
- *   analyze  → Gemini
+ * Diagnostic script — verifies the ImageRouter routing policy and prints
+ * a full TRACE for the exact user query:
+ *   "créame una imagen de un hombre sentado frente al mar"
  *
- * Also confirms that no Gemini image-generation model is referenced anywhere.
+ * Enables IMAGE_TRACE so the OpenAI/Gemini providers print the full HTTP
+ * request and response.
  *
  * Run with:  npx tsx scripts/diagnose-images.ts
  */
@@ -26,6 +26,8 @@ async function main() {
     }
   }
   process.env.NODE_ENV = 'development';
+  // Enable full HTTP trace in the providers.
+  process.env.IMAGE_TRACE = '1';
 
   const { imageRouter, detectImageIntent, selectProvider } = await import('../src/services/images');
 
@@ -50,7 +52,6 @@ async function main() {
   ];
   for (const c of cases) {
     const decision = selectProvider(c.mode);
-    // When the required key is absent, null is the correct answer.
     let pass: boolean;
     if (c.expected === 'openai') {
       pass = openaiKey ? decision.provider === 'openai' : decision.provider === null;
@@ -67,6 +68,7 @@ async function main() {
   console.log('\n[3] Intent detection tests:');
   const testQueries = [
     { q: 'crea una imagen de un hotel moderno frente al mar', expectMode: 'generate' },
+    { q: 'créame una imagen de un hombre sentado frente al mar', expectMode: 'generate' },
     { q: 'genera un logo para Vuelo Urbano', expectMode: 'generate' },
     { q: 'dibuja un gato', expectMode: 'generate' },
     { q: 'haz una ilustración de un dragón', expectMode: 'generate' },
@@ -111,24 +113,48 @@ async function main() {
     console.log(`  FAIL — ${violations} violation(s) found.`);
   }
 
-  // 5. Attempt real generation if OpenAI key is present
-  console.log('\n[5] Real generation test:');
+  // 5. Full flow trace for the exact user query
+  const userQuery = 'créame una imagen de un hombre sentado frente al mar';
+  console.log(`\n[5] Full flow trace for: "${userQuery}"`);
+  console.log('  Step 1: Usuario escribe el prompt');
+  const intent = detectImageIntent(userQuery, false);
+  console.log(`  Step 2: ImageRouter.detect() → mode=${intent.mode} confidence=${intent.confidence}`);
+  console.log(`          keywords: [${intent.matchedKeywords.join(', ')}]`);
+  const decision = selectProvider(intent.mode as 'generate' | 'edit' | 'analyze');
+  console.log(`  Step 3: Provider seleccionado: ${decision.provider ?? 'null'}`);
+  console.log(`          reason: ${decision.reason}`);
+  console.log('  Step 4: Llamada a OpenAI Images API (dall-e-3)');
+  console.log('  Step 5: Imagen generada → Frontend');
+
+  if (intent.mode !== 'generate') {
+    console.log(`  FAIL — expected mode=generate, got mode=${intent.mode}`);
+  }
+  if (decision.provider !== 'openai' && openaiKey) {
+    console.log(`  FAIL — expected provider=openai, got provider=${decision.provider}`);
+  }
+  if (decision.provider === 'gemini') {
+    console.log('  FAIL — Gemini was selected for GENERATE. This must never happen.');
+  }
+
+  // 6. Attempt real generation if OpenAI key is present
+  console.log('\n[6] Real generation test (with full HTTP TRACE):');
   if (!openaiKey) {
     console.log('  SKIPPED — OPENAI_API_KEY is not set. Cannot run real generation test.');
-    console.log('  To run this test, add OPENAI_API_KEY=sk-... to .env and re-run.');
+    console.log('  To run this test, add OPENAI_API_KEY=sk-... to .env and re-run:');
+    console.log('    npx tsx scripts/diagnose-images.ts');
     console.log('\n========== END DIAGNOSTIC ==========');
     return;
   }
 
-  console.log('  OPENAI_API_KEY present. Attempting real generation...');
+  console.log('  OPENAI_API_KEY present. Attempting real generation with TRACE enabled...');
   try {
     const result = await imageRouter.generate({
-      prompt: 'un hotel moderno frente al mar',
+      prompt: userQuery,
       size: '1024x1024',
       quality: 'standard',
       style: 'fotografia',
     });
-    console.log('  SUCCESS — image generated!');
+    console.log('\n  SUCCESS — image generated!');
     console.log(`    provider: ${result.provider}`);
     console.log(`    mimeType: ${result.mimeType}`);
     console.log(`    b64 length: ${result.b64.length}`);
@@ -136,13 +162,19 @@ async function main() {
     console.log(`    cost: $${result.costEstimate.toFixed(6)}`);
     console.log(`    time: ${result.generationMs}ms`);
 
+    if (result.provider !== 'openai') {
+      console.log(`  FAIL — provider was ${result.provider}, expected openai`);
+    } else {
+      console.log('  PASS — provider is OpenAI. No Gemini involved.');
+    }
+
     const outDir = path.join(process.cwd(), 'scripts', 'output');
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
     const outPath = path.join(outDir, `test-image-${Date.now()}.png`);
     fs.writeFileSync(outPath, Buffer.from(result.b64, 'base64'));
     console.log(`    saved to: ${outPath}`);
   } catch (e) {
-    console.error('  FAILED — generation error:', e instanceof Error ? e.message : e);
+    console.error('\n  FAILED — generation error:', e instanceof Error ? e.message : e);
     if (e instanceof Error && e.stack) console.error(e.stack);
   }
 
