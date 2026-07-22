@@ -68,22 +68,18 @@ export function InputBar() {
     const content = input.trim();
     if (!content && pendingFiles.length === 0) return;
     if (isStreaming) return;
+    const mode = imageMode;
+    const opts = mode ? { style, size, quality } : undefined;
     setInput('');
     const files = [...pendingFiles];
     clearPendingFiles();
-    await sendMessage(content, files.length > 0 ? files : undefined);
     setImageMode(null);
     setShowImageOptions(false);
-  }, [input, pendingFiles, isStreaming, clearPendingFiles, sendMessage]);
+    await sendMessage(content, files.length > 0 ? files : undefined, opts);
+  }, [input, pendingFiles, isStreaming, clearPendingFiles, sendMessage, imageMode, style, size, quality]);
 
   const handleImageAction = useCallback((mode: ImageMode) => {
     setImageMode(mode);
-    const placeholders: Record<ImageMode, string> = {
-      generate: 'Describe la imagen que quieres crear… (ej: "un hotel moderno frente al mar")',
-      edit: 'Describe el cambio que quieres aplicar a la imagen adjunta…',
-      analyze: 'Adjunta una imagen y describe qué quieres saber sobre ella…',
-    };
-    setInput(prev => prev || placeholders[mode]);
     textareaRef.current?.focus();
   }, []);
 

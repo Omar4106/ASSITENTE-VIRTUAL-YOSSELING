@@ -189,49 +189,79 @@ class RealtimeService {
             const req: StocksRequest = { symbol };
             console.log(`[Realtime] Selected Provider: ${this.stocks.id} (${this.stocks.name})`);
             console.log(`[Realtime] Searching... "${symbol}"`);
-            const r = sanitizeResult(await this.stocks.stocks(req));
-            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
-            return r;
+            try {
+              const r = sanitizeResult(await this.stocks.stocks(req));
+              console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+              if (isResultUsable(r)) return r;
+            } catch (e) {
+              console.warn('[RealtimeService] stocks failed, falling back to search:', e);
+            }
+            return this.runSearchChain('stocks', { query: `${symbol} stock price cotización bolsa`, maxResults: 5, freshness: 'day' });
           }
           case 'sports': {
             const req: SportsRequest = { query: intent.query };
             console.log(`[Realtime] Selected Provider: ${this.sports.id} (${this.sports.name})`);
             console.log(`[Realtime] Searching... "${intent.query}"`);
-            const r = sanitizeResult(await this.sports.sports(req));
-            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
-            return r;
+            try {
+              const r = sanitizeResult(await this.sports.sports(req));
+              console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+              if (isResultUsable(r)) return r;
+            } catch (e) {
+              console.warn('[RealtimeService] sports failed, falling back to search:', e);
+            }
+            return this.runSearchChain('sports', { query: `${intent.query} resultado marcador hoy`, maxResults: 6, freshness: 'day' });
           }
           case 'traffic': {
             const { origin, destination } = extractRoute(intent.query);
             const req: TrafficRequest = { origin, destination };
             console.log(`[Realtime] Selected Provider: ${this.traffic.id} (${this.traffic.name})`);
             console.log(`[Realtime] Searching... "${origin} → ${destination}"`);
-            const r = sanitizeResult(await this.traffic.traffic(req));
-            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
-            return r;
+            try {
+              const r = sanitizeResult(await this.traffic.traffic(req));
+              console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+              if (isResultUsable(r)) return r;
+            } catch (e) {
+              console.warn('[RealtimeService] traffic failed, falling back to search:', e);
+            }
+            return this.runSearchChain('traffic', { query: `tráfico ruta ${origin} a ${destination} estado`, maxResults: 5, freshness: 'day' });
           }
           case 'flights': {
             const req: FlightsRequest = { query: intent.query };
             console.log(`[Realtime] Selected Provider: ${this.flights.id} (${this.flights.name})`);
             console.log(`[Realtime] Searching... "${intent.query}"`);
-            const r = sanitizeResult(await this.flights.flights(req));
-            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
-            return r;
+            try {
+              const r = sanitizeResult(await this.flights.flights(req));
+              console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+              if (isResultUsable(r)) return r;
+            } catch (e) {
+              console.warn('[RealtimeService] flights failed, falling back to search:', e);
+            }
+            return this.runSearchChain('flights', { query: `${intent.query} vuelo estado salida llegada`, maxResults: 6, freshness: 'day' });
           }
           case 'location': {
             const req: LocationRequest = { query: intent.query };
             console.log(`[Realtime] Selected Provider: ${this.location.id} (${this.location.name})`);
             console.log(`[Realtime] Searching... "${intent.query}"`);
-            const r = sanitizeResult(await this.location.location(req));
-            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
-            return r;
+            try {
+              const r = sanitizeResult(await this.location.location(req));
+              console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+              if (isResultUsable(r)) return r;
+            } catch (e) {
+              console.warn('[RealtimeService] location failed, falling back to search:', e);
+            }
+            return this.runSearchChain('location', { query: `${intent.query} ubicación dirección mapa horario`, maxResults: 6 });
           }
           case 'scheduler': {
             console.log(`[Realtime] Selected Provider: ${this.scheduler.id} (${this.scheduler.name})`);
             console.log(`[Realtime] Searching... "${intent.query}"`);
-            const r = sanitizeResult(await this.scheduler.search({ query: intent.query, maxResults: 6, freshness: 'month' }));
-            console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
-            return r;
+            try {
+              const r = sanitizeResult(await this.scheduler.search({ query: intent.query, maxResults: 6, freshness: 'month' }));
+              console.log(`[Realtime] Search completed — ${r.sources.length} source(s)`);
+              if (isResultUsable(r)) return r;
+            } catch (e) {
+              console.warn('[RealtimeService] scheduler failed, falling back to search:', e);
+            }
+            return this.runSearchChain('scheduler', { query: intent.query, maxResults: 6, freshness: 'month' });
           }
           default:
             return null;

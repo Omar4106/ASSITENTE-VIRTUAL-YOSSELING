@@ -143,14 +143,20 @@ export function detectImageIntent(message: string, hasImageAttachment = false): 
     matched.push('imagen adjunta');
   }
 
-  const genKwHits = GENERATE_KEYWORDS.filter(k => lower.includes(k));
-  const genPatHits = GENERATE_PATTERNS.filter(p => p.test(text));
-  if (genKwHits.length || genPatHits.length) {
-    matched.push(...genKwHits, ...genPatHits.map(p => p.source));
-    const score = genKwHits.length + genPatHits.length * 2;
-    if (score > confidence) {
-      confidence = score;
-      mode = 'generate';
+  // Generate is checked last but must NOT override analyze or edit.
+  // If the user attached an image and we already detected analyze/edit,
+  // generate keywords like "crea" in "describe y crea un resumen" should
+  // not flip the mode to generate.
+  if (!mode || (!hasImageAttachment && mode !== 'analyze' && mode !== 'edit')) {
+    const genKwHits = GENERATE_KEYWORDS.filter(k => lower.includes(k));
+    const genPatHits = GENERATE_PATTERNS.filter(p => p.test(text));
+    if (genKwHits.length || genPatHits.length) {
+      matched.push(...genKwHits, ...genPatHits.map(p => p.source));
+      const score = genKwHits.length + genPatHits.length * 2;
+      if (score > confidence) {
+        confidence = score;
+        mode = 'generate';
+      }
     }
   }
 
@@ -296,7 +302,7 @@ class ImageRouter {
     const decision = selectProvider('edit');
     if (!decision.provider) throw new Error(decision.reason);
 
-    const enhanced = enhancePrompt(req.prompt, req.style, 'medium');
+    const enhanced = enhancePrompt(req.prompt, req.style, req.quality ?? 'medium');
 
     console.log('\n========================');
     console.log('IMAGE REQUEST');

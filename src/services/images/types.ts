@@ -31,6 +31,7 @@ export interface EditImageRequest {
   mimeType: string;
   maskB64?: string;
   style?: ImageStyle;
+  quality?: ImageQuality;
 }
 
 export interface AnalyzeImageRequest {

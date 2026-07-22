@@ -267,7 +267,11 @@ function streamAndCollect(
         ctrl.enqueue(enc.encode('data: [DONE]\n\n'));
         ctrl.close();
       } catch (e) {
-        ctrl.error(e);
+        const errEnc = new TextEncoder();
+        const errMsg = e instanceof Error ? e.message : String(e);
+        ctrl.enqueue(errEnc.encode(`data: ${JSON.stringify({ error: errMsg })}\n\n`));
+        ctrl.enqueue(errEnc.encode('data: [DONE]\n\n'));
+        ctrl.close();
       } finally {
         resolveText(fullText);
       }
@@ -329,10 +333,17 @@ export async function POST(req: NextRequest) {
 
     // If the user is asking for image generation, redirect to the ImageService.
     if (taskType === 'image_gen') {
+      const imgDecision = imageRouter.selectProvider('generate');
+      if (!imgDecision.provider) {
+        return NextResponse.json({
+          error: imgDecision.reason,
+        }, { status: 503 });
+      }
       return NextResponse.json({
         redirect: '/api/images',
         action: 'generate',
         prompt: lastUserText,
+        provider: imgDecision.provider,
       }, { status: 200 });
     }
 

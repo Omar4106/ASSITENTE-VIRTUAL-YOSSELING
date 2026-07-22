@@ -7,6 +7,13 @@ import type {
   SidebarView, RightPanelView, AttachedFile, AICenterData,
   MemoryCategory, MemoryImportance, MemoryType,
 } from '@/types';
+import type { ImageStyle, ImageSize, ImageQuality } from '@/src/services/images/types';
+
+export interface ImageOptions {
+  style?: ImageStyle;
+  size?: ImageSize;
+  quality?: ImageQuality;
+}
 import {
   saveChat, getAllChats, deleteChat as dbDeleteChat, clearAllChats as dbClearChats,
   getAllMemory, saveMemoryItem, deleteMemoryItem as dbDeleteMemory,
@@ -46,7 +53,7 @@ interface AppState {
   deleteChat: (id: string) => Promise<void>;
   clearAllChats: () => Promise<void>;
   importChats: (chats: Chat[]) => Promise<void>;
-  sendMessage: (content: string, files?: AttachedFile[]) => Promise<void>;
+  sendMessage: (content: string, files?: AttachedFile[], imageOptions?: ImageOptions) => Promise<void>;
   stopStreaming: () => void;
   editMessage: (chatId: string, messageId: string, content: string) => Promise<void>;
   deleteMessage: (chatId: string, messageId: string) => Promise<void>;
@@ -83,6 +90,14 @@ interface AppState {
 
 const { id: defaultModelId, provider: defaultProvider } = getDefaultModel();
 
+function applyTheme(theme: 'dark' | 'light') {
+  if (typeof document === 'undefined') return;
+  const el = document.documentElement;
+  el.classList.remove('dark', 'light');
+  el.classList.add(theme);
+  el.setAttribute('data-theme', theme);
+}
+
 export const useAppStore = create<AppState>()(
   subscribeWithSelector((set, get) => ({
     chats: [],
@@ -114,6 +129,7 @@ export const useAppStore = create<AppState>()(
         selectedModel: settings.defaultModel,
         selectedProvider: settings.defaultProvider,
       });
+      applyTheme(settings.theme);
     },
 
     createNewChat: () => {
@@ -153,7 +169,7 @@ export const useAppStore = create<AppState>()(
       set(s => ({ chats: [...toAdd, ...s.chats].sort((a, b) => b.updatedAt - a.updatedAt) }));
     },
 
-    sendMessage: async (content, files) => {
+    sendMessage: async (content, files, imageOptions) => {
       const state = get();
       let chat = state.chats.find(c => c.id === state.activeChatId) ?? null;
       let chatId = state.activeChatId;
@@ -196,7 +212,7 @@ export const useAppStore = create<AppState>()(
         ...chat,
         messages: updatedMessages,
         updatedAt: Date.now(),
-        title: chat.messages.length === 0 ? (content.slice(0, 40) || 'Nuevo Chat') : chat.title,
+        title: (chat.messages?.length ?? 0) === 0 ? (content.slice(0, 40) || 'Nuevo Chat') : chat.title,
       };
 
       set(s => ({
@@ -273,7 +289,7 @@ export const useAppStore = create<AppState>()(
               action: data.action,
               prompt: data.prompt ?? '',
               provider: data.provider ?? null,
-            }, chatId!, assistantMsg.id, files, startTime);
+            }, chatId!, assistantMsg.id, files, startTime, imageOptions);
             return;
           }
         }
@@ -433,7 +449,7 @@ export const useAppStore = create<AppState>()(
       }
       if (lastUserIdx < 0) return;
       const lastUser = chat.messages[lastUserIdx];
-      set(s => ({ chats: s.chats.map(c => c.id === chatId ? { ...c, messages: c.messages.slice(0, lastUserIdx) } : c), activeChatId: chatId }));
+      set(s => ({ chats: s.chats.map(c => c.id === chatId ? { ...c, messages: c.messages.slice(0, lastUserIdx + 1) } : c), activeChatId: chatId }));
       await get().sendMessage(lastUser.content, lastUser.attachments);
     },
 
@@ -463,6 +479,7 @@ export const useAppStore = create<AppState>()(
       const next = { ...get().settings, ...partial };
       set({ settings: next });
       saveSettings(next);
+      if (partial.theme) applyTheme(next.theme);
     },
 
     loadMemory: async () => { set({ memory: await getAllMemory() }); },
@@ -572,6 +589,7 @@ async function handleImageRedirect(
   assistantMsgId: string,
   userFiles: AttachedFile[] | undefined,
   startTime: number,
+  imageOptions?: ImageOptions,
 ) {
   const updateAssistant = (updates: Partial<Message>) => {
     useAppStore.setState(s => ({
@@ -601,6 +619,9 @@ async function handleImageRedirect(
         prompt: redirect.prompt,
         imageB64: imageB64 || undefined,
         mimeType,
+        style: imageOptions?.style,
+        size: imageOptions?.size,
+        quality: imageOptions?.quality,
       }),
     });
 

@@ -20,9 +20,6 @@ export function Header() {
 
   const toggleTheme = () => {
     updateSettings({ theme: isDark ? 'light' : 'dark' });
-    if (typeof document !== 'undefined') {
-      document.documentElement.classList.toggle('light', isDark);
-    }
   };
 
   const switchProvider = (p: Provider) => {
