@@ -3,31 +3,19 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Plus, MessageSquare, Star, Pin, Share2, Brain,
-  FileText, Image as ImageIcon, Printer, Settings,
-  Keyboard, HelpCircle, ChevronRight, Search,
-  MoreHorizontal, Edit2, Trash2, PinOff, Heart,
-  X, User, Zap, Clock
-} from 'lucide-react';
+import { Plus, Chrome as Home, MessageSquare, Brain, Cpu, Wrench, Settings, ChevronRight, Search, MoveHorizontal as MoreHorizontal, CreditCard as Edit2, Trash2, Pin, PinOff, Star, Clock, Hash, DollarSign, Wifi } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { PROVIDERS } from '@/lib/ai-providers';
 import type { Chat, SidebarView } from '@/types';
 import { cn } from '@/lib/utils';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const NAV_ITEMS: { id: SidebarView; icon: React.ReactNode; label: string }[] = [
-  { id: 'chats', icon: <MessageSquare size={16} />, label: 'Chats' },
-  { id: 'favorites', icon: <Star size={16} />, label: 'Favoritos' },
-  { id: 'pinned', icon: <Pin size={16} />, label: 'Chats fijados' },
-  { id: 'shared', icon: <Share2 size={16} />, label: 'Compartidos' },
-  { id: 'memory', icon: <Brain size={16} />, label: 'Memoria' },
-  { id: 'documents', icon: <FileText size={16} />, label: 'Documentos' },
-  { id: 'images', icon: <ImageIcon size={16} />, label: 'Imágenes' },
-  { id: 'printers', icon: <Printer size={16} />, label: 'Impresoras' },
-  { id: 'settings', icon: <Settings size={16} />, label: 'Configuración' },
-  { id: 'shortcuts', icon: <Keyboard size={16} />, label: 'Atajos de teclado' },
-  { id: 'help', icon: <HelpCircle size={16} />, label: 'Ayuda' },
+  { id: 'chats',      icon: <Home size={17} />,          label: 'Inicio' },
+  { id: 'chats',      icon: <MessageSquare size={17} />, label: 'Chats' },
+  { id: 'memory',     icon: <Brain size={17} />,         label: 'Memoria' },
+  { id: 'pinned',     icon: <Cpu size={17} />,           label: 'Centro IA' },
+  { id: 'images',     icon: <Wrench size={17} />,        label: 'Herramientas' },
+  { id: 'settings',   icon: <Settings size={17} />,      label: 'Configuración' },
 ];
 
 function ChatItem({ chat, isActive }: { chat: Chat; isActive: boolean }) {
@@ -39,15 +27,14 @@ function ChatItem({ chat, isActive }: { chat: Chat; isActive: boolean }) {
   return (
     <div
       className={cn(
-        'group relative flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150',
+        'group relative flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all duration-200',
         isActive
-          ? 'bg-purple-500/20 text-white'
-          : 'hover:bg-white/5 text-[#B3B3B3]'
+          ? 'glass-card text-white'
+          : 'hover:bg-white/[0.04] text-[#BDB7CC]'
       )}
       onClick={() => !isRenaming && setActiveChat(chat.id)}
     >
       <MessageSquare size={14} className={cn('shrink-0', isActive && 'text-purple-400')} />
-
       {isRenaming ? (
         <input
           autoFocus
@@ -73,13 +60,10 @@ function ChatItem({ chat, isActive }: { chat: Chat; isActive: boolean }) {
       )}
 
       <div
-        className={cn(
-          'opacity-0 group-hover:opacity-100 transition-opacity',
-          showMenu && 'opacity-100'
-        )}
+        className={cn('opacity-0 group-hover:opacity-100 transition-opacity', showMenu && 'opacity-100')}
         onClick={e => { e.stopPropagation(); setShowMenu(!showMenu); }}
       >
-        <MoreHorizontal size={14} className="text-[#B3B3B3] hover:text-white" />
+        <MoreHorizontal size={14} className="text-[#BDB7CC] hover:text-white" />
       </div>
 
       <AnimatePresence>
@@ -88,7 +72,7 @@ function ChatItem({ chat, isActive }: { chat: Chat; isActive: boolean }) {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="absolute right-0 top-8 z-50 bg-[#1A1B26] border border-white/10 rounded-lg shadow-xl py-1 min-w-[160px]"
+            className="absolute right-0 top-9 z-50 glass-strong rounded-xl shadow-2xl py-1 min-w-[160px]"
             onClick={e => e.stopPropagation()}
           >
             {[
@@ -101,7 +85,7 @@ function ChatItem({ chat, isActive }: { chat: Chat; isActive: boolean }) {
                 key={item.label}
                 className={cn(
                   'w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-white/5 transition-colors',
-                  (item as { danger?: boolean }).danger ? 'text-red-400' : 'text-[#B3B3B3]'
+                  (item as { danger?: boolean }).danger ? 'text-red-400' : 'text-[#BDB7CC]'
                 )}
                 onClick={item.action}
               >
@@ -115,11 +99,26 @@ function ChatItem({ chat, isActive }: { chat: Chat; isActive: boolean }) {
   );
 }
 
+function StatusRow({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: string; color?: string }) {
+  return (
+    <div className="flex items-center justify-between text-[11px]">
+      <div className="flex items-center gap-1.5 text-[#BDB7CC]/70">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <span className="font-medium truncate max-w-[55%]" style={{ color: color ?? '#E9D5FF' }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 export function Sidebar() {
   const {
     chats, activeChatId, sidebarView, setSidebarView,
     createNewChat, selectedModel, selectedProvider,
     settings, searchQuery, setSearchQuery,
+    aiCenterData,
   } = useAppStore();
 
   const [collapsed, setCollapsed] = useState(false);
@@ -135,21 +134,30 @@ export function Sidebar() {
     searchQuery ? c.title.toLowerCase().includes(searchQuery.toLowerCase()) : true
   );
 
+  const activeNav = sidebarView === 'pinned' ? 'pinned' : sidebarView === 'memory' ? 'memory' : sidebarView === 'settings' ? 'settings' : sidebarView === 'images' ? 'images' : 'chats';
+
   return (
     <motion.aside
       initial={false}
-      animate={{ width: collapsed ? 60 : 260 }}
+      animate={{ width: collapsed ? 64 : 280 }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="flex flex-col h-full bg-[#111218] border-r border-white/[0.06] relative overflow-hidden"
+      className="flex flex-col h-full relative overflow-hidden"
+      style={{
+        background: 'rgba(18, 9, 31, 0.72)',
+        backdropFilter: 'blur(28px) saturate(1.5)',
+        WebkitBackdropFilter: 'blur(28px) saturate(1.5)',
+        borderRight: '1px solid rgba(255, 255, 255, 0.06)',
+      }}
     >
-      {/* Logo */}
-      <div className={cn('flex items-center gap-3 px-4 py-4 border-b border-white/[0.06]', collapsed && 'px-3 justify-center')}>
-        <div className="relative w-8 h-8 shrink-0">
+      {/* ── Logo ── */}
+      <div className={cn('flex items-center gap-3 px-5 py-5', collapsed && 'px-3 justify-center')}>
+        <div className="relative w-9 h-9 shrink-0">
+          <div className="absolute inset-0 rounded-full bg-purple-500/20 blur-md" />
           <Image
             src="/assets/images/logo_de_yosseling_sin_fondo_.png"
             alt="Yosseling"
             fill
-            className="object-contain"
+            className="object-contain relative z-10"
           />
         </div>
         <AnimatePresence>
@@ -160,92 +168,92 @@ export function Sidebar() {
               exit={{ opacity: 0, x: -10 }}
               className="flex-1 overflow-hidden"
             >
-              <span className="gradient-text font-bold text-lg tracking-wide">Yosseling</span>
+              <div className="flex items-center gap-1.5">
+                <span className="gradient-text font-bold text-base tracking-wide">YOSSELING</span>
+                <span className="text-[10px] font-bold text-purple-400/80 bg-purple-500/10 px-1.5 py-0.5 rounded-md">2.0</span>
+              </div>
+              <p className="text-[10px] text-[#BDB7CC]/60 mt-0.5">Tu asistente inteligente</p>
             </motion.div>
           )}
         </AnimatePresence>
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="text-[#B3B3B3] hover:text-white transition-colors ml-auto"
+        {!collapsed && (
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="text-[#BDB7CC] hover:text-white transition-colors"
+          >
+            <motion.div animate={{ rotate: collapsed ? 0 : 180 }}>
+              <ChevronRight size={16} />
+            </motion.div>
+          </button>
+        )}
+      </div>
+
+      {/* ── New Chat ── */}
+      <div className={cn('px-4 py-2', collapsed && 'px-2')}>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={createNewChat}
+          className={cn(
+            'w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl text-sm font-medium transition-all',
+            'text-white glow-soft',
+            collapsed && 'justify-center px-2'
+          )}
+          style={{
+            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.9) 0%, rgba(255, 95, 215, 0.8) 100%)',
+            boxShadow: '0 4px 20px rgba(168, 85, 247, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
+          }}
         >
-          <motion.div animate={{ rotate: collapsed ? 0 : 180 }}>
-            <ChevronRight size={16} />
-          </motion.div>
-        </button>
+          <Plus size={18} className="shrink-0" />
+          {!collapsed && <span>Nuevo Chat</span>}
+        </motion.button>
       </div>
 
-      {/* New Chat */}
-      <div className={cn('px-3 py-3', collapsed && 'px-2')}>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={createNewChat}
-                className={cn(
-                  'w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
-                  'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400',
-                  'text-white shadow-lg shadow-purple-500/20',
-                  collapsed && 'justify-center px-2'
-                )}
-              >
-                <Plus size={16} className="shrink-0" />
-                {!collapsed && <span>Nuevo Chat</span>}
-              </motion.button>
-            </TooltipTrigger>
-            {collapsed && <TooltipContent side="right">Nuevo Chat</TooltipContent>}
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-
-      {/* Search */}
+      {/* ── Search ── */}
       <AnimatePresence>
         {!collapsed && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="px-3 pb-2"
+            className="px-4 pb-2"
           >
             <div className="relative">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#B3B3B3]" />
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#BDB7CC]/50" />
               <input
                 type="text"
                 placeholder="Buscar chats..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full bg-white/5 border border-white/[0.06] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-[#B3B3B3]/50 outline-none focus:border-purple-500/50 transition-colors"
+                className="w-full glass-card rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-[#BDB7CC]/40 outline-none focus:border-purple-500/30 transition-all"
+                style={{ background: 'rgba(255, 255, 255, 0.04)' }}
               />
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-2 space-y-0.5 pb-2">
-        <TooltipProvider>
-          {NAV_ITEMS.slice(0, 4).map(item => (
-            <Tooltip key={item.id}>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setSidebarView(item.id)}
-                  className={cn(
-                    'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all',
-                    sidebarView === item.id
-                      ? 'bg-purple-500/15 text-purple-300'
-                      : 'text-[#B3B3B3] hover:bg-white/5 hover:text-white',
-                    collapsed && 'justify-center px-2'
-                  )}
-                >
-                  {item.icon}
-                  {!collapsed && <span>{item.label}</span>}
-                </button>
-              </TooltipTrigger>
-              {collapsed && <TooltipContent side="right">{item.label}</TooltipContent>}
-            </Tooltip>
-          ))}
-        </TooltipProvider>
+      {/* ── Nav ── */}
+      <nav className="flex-1 overflow-y-auto px-3 space-y-1 pb-2">
+        {NAV_ITEMS.map((item, idx) => {
+          const isActive = idx === 0 ? sidebarView === 'chats' && !searchQuery : activeNav === item.id;
+          return (
+            <button
+              key={`${item.id}-${idx}`}
+              onClick={() => setSidebarView(item.id)}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all',
+                isActive
+                  ? 'glass-card text-white'
+                  : 'text-[#BDB7CC] hover:bg-white/[0.04] hover:text-white',
+                collapsed && 'justify-center px-2'
+              )}
+            >
+              <span className={cn(isActive && 'text-purple-400')}>{item.icon}</span>
+              {!collapsed && <span className="font-medium">{item.label}</span>}
+            </button>
+          );
+        })}
 
         {/* Chat list */}
         <AnimatePresence>
@@ -254,10 +262,10 @@ export function Sidebar() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="mt-2 space-y-0.5 max-h-60 overflow-y-auto"
+              className="mt-2 space-y-1 max-h-48 overflow-y-auto"
             >
               {filteredChats.length === 0 ? (
-                <p className="text-xs text-[#B3B3B3]/50 px-3 py-2">Sin conversaciones</p>
+                <p className="text-xs text-[#BDB7CC]/40 px-3 py-2">Sin conversaciones</p>
               ) : (
                 filteredChats.map(chat => (
                   <ChatItem key={chat.id} chat={chat} isActive={chat.id === activeChatId} />
@@ -266,61 +274,80 @@ export function Sidebar() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Divider */}
-        <div className="h-px bg-white/[0.06] my-2" />
-
-        <TooltipProvider>
-          {NAV_ITEMS.slice(4).map(item => (
-            <Tooltip key={item.id}>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => setSidebarView(item.id)}
-                  className={cn(
-                    'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all',
-                    sidebarView === item.id
-                      ? 'bg-purple-500/15 text-purple-300'
-                      : 'text-[#B3B3B3] hover:bg-white/5 hover:text-white',
-                    collapsed && 'justify-center px-2'
-                  )}
-                >
-                  {item.icon}
-                  {!collapsed && <span>{item.label}</span>}
-                </button>
-              </TooltipTrigger>
-              {collapsed && <TooltipContent side="right">{item.label}</TooltipContent>}
-            </Tooltip>
-          ))}
-        </TooltipProvider>
       </nav>
 
-      {/* User / Model footer */}
+      {/* ── System Status Widget ── */}
       <AnimatePresence>
         {!collapsed && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="border-t border-white/[0.06] p-3 space-y-2"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="px-3 pb-2"
           >
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/5">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shrink-0">
-                <User size={12} className="text-white" />
+            <div
+              className="rounded-2xl p-3.5 space-y-2.5"
+              style={{
+                background: 'linear-gradient(135deg, rgba(35, 19, 60, 0.5) 0%, rgba(26, 16, 48, 0.5) 100%)',
+                border: '1px solid rgba(255, 255, 255, 0.06)',
+                backdropFilter: 'blur(16px)',
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider font-semibold text-[#BDB7CC]/60">Estado del sistema</span>
+                <div className="flex items-center gap-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  <span className="text-[10px] text-green-400 font-medium">Todo OK</span>
+                </div>
+              </div>
+
+              <StatusRow icon={<Wifi size={11} />} label="Proveedor" value={provider?.name ?? selectedProvider} color={provider?.color} />
+              <StatusRow icon={<Cpu size={11} />} label="Modelo" value={aiCenterData?.activeModel ?? selectedModel} />
+              <StatusRow icon={<Clock size={11} />} label="Latencia" value={aiCenterData ? `${aiCenterData.latency}ms` : '—'} />
+              <StatusRow icon={<Hash size={11} />} label="Tokens" value={aiCenterData ? String(aiCenterData.tokens) : '0'} />
+              <StatusRow icon={<DollarSign size={11} />} label="Costo" value={aiCenterData ? `$${aiCenterData.costEstimate.toFixed(6)}` : '$0'} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Yosseling Profile Card ── */}
+      <AnimatePresence>
+        {!collapsed && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="px-3 pb-3"
+          >
+            <div
+              className="rounded-2xl p-3 flex items-center gap-3"
+              style={{
+                background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(255, 95, 215, 0.08) 100%)',
+                border: '1px solid rgba(168, 85, 247, 0.15)',
+                backdropFilter: 'blur(16px)',
+              }}
+            >
+              <div className="relative shrink-0">
+                <div className="w-10 h-10 rounded-full overflow-hidden border border-purple-400/30">
+                  <Image
+                    src="/assets/images/logo_de_yosseling_sin_fondo_.png"
+                    alt="Yosseling"
+                    width={40}
+                    height={40}
+                    className="object-cover"
+                  />
+                </div>
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-[#1A1030]" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-white truncate">{settings.userName}</p>
-                <p className="text-[10px] text-[#B3B3B3]">Cuenta Pro</p>
+                <p className="text-xs font-semibold text-white">Yosseling</p>
+                <p className="text-[10px] text-green-400 flex items-center gap-1">
+                  <span className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />
+                  En línea
+                </p>
+                <p className="text-[10px] text-[#BDB7CC]/60 mt-0.5 italic">Siempre aquí para ti.</p>
               </div>
-            </div>
-            <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white/5">
-              <Zap size={11} className="text-purple-400 shrink-0" />
-              <span className="text-[10px] text-[#B3B3B3] truncate flex-1">Modelo activo</span>
-              <span
-                className="text-[10px] font-medium shrink-0"
-                style={{ color: provider?.color ?? '#A855F7' }}
-              >
-                {provider?.name ?? selectedProvider}
-              </span>
             </div>
           </motion.div>
         )}
