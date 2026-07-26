@@ -144,9 +144,10 @@ async function callGemini(model: string, messages: ChatMessage[]): Promise<Respo
     const textContent = typeof m.content === 'string' ? m.content : '';
 
     const imgAttachments = m.attachments?.filter(a => a.type.startsWith('image/') && a.dataUrl) ?? [];
-    const docAttachments = m.attachments?.filter(a => !a.type.startsWith('image/') && a.content) ?? [];
+    const audioAttachments = m.attachments?.filter(a => (a.type === 'audio' || a.type.startsWith('audio/')) && a.dataUrl) ?? [];
+    const docAttachments = m.attachments?.filter(a => !a.type.startsWith('image/') && !(a.type === 'audio' || a.type.startsWith('audio/')) && a.content) ?? [];
 
-    if (imgAttachments.length === 0 && docAttachments.length === 0) {
+    if (imgAttachments.length === 0 && audioAttachments.length === 0 && docAttachments.length === 0) {
       return { role, parts: [{ text: textContent }] };
     }
 
@@ -154,6 +155,11 @@ async function callGemini(model: string, messages: ChatMessage[]): Promise<Respo
     for (const img of imgAttachments) {
       const [meta, b64] = (img.dataUrl ?? '').split(',');
       const mimeType = meta.match(/data:([^;]+)/)?.[1] ?? img.type;
+      parts.push({ inlineData: { mimeType, data: b64 } });
+    }
+    for (const audio of audioAttachments) {
+      const [meta, b64] = (audio.dataUrl ?? '').split(',');
+      const mimeType = meta.match(/data:([^;]+)/)?.[1] ?? 'audio/mp3';
       parts.push({ inlineData: { mimeType, data: b64 } });
     }
     for (const doc of docAttachments) {
@@ -535,9 +541,11 @@ ${realtimeContext.prompt}`
       ? null
       : provider as Exclude<Provider, 'auto'>;
 
-    // If PDFs or audio are attached, force Anthropic (Claude handles PDFs natively)
+    // If PDFs are attached, force Anthropic (Claude handles PDFs natively).
+    // If audio is attached, prefer Gemini (handles audio natively) — only fall
+    // back to Anthropic if Gemini is unavailable.
     let decision = routeModel(lastUserText, hasImages, forcedProvider);
-    if (!forcedProvider && (hasPdfs || hasAudio || hasDocuments) && getEnvVar('ANTHROPIC_API_KEY')) {
+    if (!forcedProvider && hasPdfs && getEnvVar('ANTHROPIC_API_KEY')) {
       const anthropicModel = getProviderDefaultModel('anthropic');
       decision = {
         provider: 'anthropic',
@@ -546,6 +554,27 @@ ${realtimeContext.prompt}`
         reason: 'Anthropic Claude for document/audio analysis',
         chain: ['anthropic', ...(decision.chain ?? []).filter(p => p !== 'anthropic')],
       };
+    }
+    if (!forcedProvider && hasAudio && !hasPdfs) {
+      if (getEnvVar('GEMINI_API_KEY')) {
+        const geminiModel = getProviderDefaultModel('gemini');
+        decision = {
+          provider: 'gemini',
+          model: geminiModel,
+          taskType: 'document',
+          reason: 'Gemini for native audio analysis',
+          chain: ['gemini', ...(decision.chain ?? []).filter(p => p !== 'gemini')],
+        };
+      } else if (getEnvVar('ANTHROPIC_API_KEY')) {
+        const anthropicModel = getProviderDefaultModel('anthropic');
+        decision = {
+          provider: 'anthropic',
+          model: anthropicModel,
+          taskType: 'document',
+          reason: 'Anthropic Claude for audio analysis (Gemini not configured)',
+          chain: ['anthropic', ...(decision.chain ?? []).filter(p => p !== 'anthropic')],
+        };
+      }
     }
 
     if (!decision.provider || !decision.model) {

@@ -59,7 +59,7 @@ ${modifier}
 - Usa Markdown cuando sea útil (código, listas, tablas) pero no en conversación casual.`;
 
   if (memoryContext && memoryContext.trim()) {
-    prompt += `\n\n━━ LO QUE RECUERDAS DEL USUARIO ━━\n${memoryContext}\n\nUsa esta información de forma natural para personalizar tus respuestas. No menciones explícitamente que tienes esta información guardada a menos que el usuario lo pregunte directamente.`;
+    prompt += `\n\n━━ LO QUE RECUERDAS DEL USUARIO ━━\n${memoryContext}\n\nUsa esta información de forma natural para personalizar tus respuestas. No menciones explícitamente que tienes esta información guardada a menos que el usuario lo pregunte directamente. Si una memoria está marcada como IMPORTANTE, priorízala siempre. Conecta lo que el usuario dice ahora con lo que ya sabes de él para que la conversación se sienta continua y personal.`;
   }
 
   return prompt;

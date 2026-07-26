@@ -26,14 +26,21 @@ const MEMORY_PATTERNS: Array<[RegExp, string]> = [
   [/tengo\s+(\d{1,3})\s+años/i, 'edad'],
   [/(?:vivo en|soy de|nací en)\s+([^\.,;!\?\n]{2,40})/i, 'lugar'],
   [/trabajo en\s+([^\.,;!\?\n]{2,40})/i, 'trabajo'],
+  [/(?:soy|mi cargo es)\s+([^\.,;!\?\n]{2,40})\s+(?:en|de)/i, 'cargo'],
   [/(?:estudio|estudio en)\s+([^\.,;!\?\n]{2,40})/i, 'estudios'],
   [/(?:mi perro|mi gato|mi mascota)\s+(?:se llama|es)\s+([^\.,;!\?\n]{2,40})/i, 'mascota'],
-  [/(?:me gusta(?:n)?|amo)\s+(?:el|la|los|las|mucho)?\s*([^\.,;!\?\n]{2,40})/i, 'gusto'],
+  [/(?:me gusta(?:n)?|amo|disfruto)\s+(?:el|la|los|las|mucho)?\s*([^\.,;!\?\n]{2,40})/i, 'gusto'],
   [/(?:no me gusta(?:n)?|odio|detesto)\s+([^\.,;!\?\n]{2,40})/i, 'disgusto'],
+  [/(?:mi favorito|mi favorita)\s+(?:es)?\s*([^\.,;!\?\n]{2,40})/i, 'favorito'],
   [/(?:mi meta|mi objetivo)\s+(?:es|para)\s+([^\.,;!\?\n]{2,60})/i, 'objetivo'],
-  [/(?:estoy trabajando en|estoy construyendo|estoy desarrollando)\s+([^\.,;!\?\n]{2,60})/i, 'proyecto'],
+  [/(?:quiero aprender|estoy aprendiendo)\s+([^\.,;!\?\n]{2,40})/i, 'aprendizaje'],
+  [/(?:estoy trabajando en|estoy construyendo|estoy desarrollando|estoy creando)\s+([^\.,;!\?\n]{2,60})/i, 'proyecto'],
   [/(?:mi esposa|mi esposo|mi pareja|mi novio|mi novia)\s+(?:se llama|es)\s+([^\.,;!\?\n]{2,40})/i, 'pareja'],
   [/(?:mi hijo|mi hija|mi madre|mi padre|mi hermano|mi hermana)\s+(?:se llama|es)\s+([^\.,;!\?\n]{2,40})/i, 'familia'],
+  [/(?:soy alérgico|tengo alergia|alérgica a)\s+([^\.,;!\?\n]{2,40})/i, 'alergia'],
+  [/(?:tomo|medicamento)\s+([^\.,;!\?\n]{2,40})/i, 'medicamento'],
+  [/(?:mi cumpleaños|cumplo)\s+(?:es el|el)\s+([^\.,;!\?\n]{2,40})/i, 'cumpleaños'],
+  [/(?:hablo|mi idioma es)\s+([^\.,;!\?\n]{2,40})/i, 'idioma'],
 ];
 
 function inferCategory(text: string): MemoryCategory {
@@ -46,7 +53,7 @@ function inferCategory(text: string): MemoryCategory {
 
 function inferImportance(text: string): MemoryImportance {
   const lower = text.toLowerCase();
-  const highKw = ['alergia', 'alérgico', 'medicamento', 'condición médica', 'urgente', 'crítico'];
+  const highKw = ['alergia', 'alérgico', 'alérgica', 'medicamento', 'condición médica', 'urgente', 'crítico', 'cumpleaños', 'meta', 'objetivo'];
   const lowKw  = ['quizás', 'tal vez', 'a veces', 'ocasionalmente'];
   if (highKw.some(k => lower.includes(k))) return 'high';
   if (lowKw.some(k => lower.includes(k))) return 'low';
@@ -118,12 +125,42 @@ export function createMemoryItem(d: DetectedMemory, source: 'auto' | 'manual' = 
 
 export function buildMemoryContext(memory: MemoryItem[]): string {
   if (memory.length === 0) return '';
-  const sorted = [...memory].sort((a, b) => {
-    const ord: Record<MemoryImportance, number> = { high: 0, medium: 1, low: 2 };
-    return ord[a.importance] - ord[b.importance];
-  });
-  const lines = sorted.map(m => `- ${m.title}: ${m.content}`);
-  return lines.join('\n');
+
+  const ord: Record<MemoryImportance, number> = { high: 0, medium: 1, low: 2 };
+  const sorted = [...memory].sort((a, b) => ord[a.importance] - ord[b.importance]);
+
+  const byCategory = new Map<MemoryCategory, MemoryItem[]>();
+  for (const m of sorted) {
+    const arr = byCategory.get(m.category) ?? [];
+    arr.push(m);
+    byCategory.set(m.category, arr);
+  }
+
+  const catLabels: Record<MemoryCategory, string> = {
+    personal: 'Datos personales',
+    trabajo: 'Trabajo',
+    estudios: 'Estudios',
+    familia: 'Familia',
+    mascotas: 'Mascotas',
+    preferencias: 'Preferencias',
+    proyectos: 'Proyectos',
+    objetivos: 'Objetivos',
+    hobbies: 'Hobbies',
+    otros: 'Otros',
+  };
+
+  const sections: string[] = [];
+  for (const [cat, items] of Array.from(byCategory)) {
+    const label = catLabels[cat] ?? cat;
+    const lines = items.map(m => {
+      const imp = m.importance === 'high' ? ' (IMPORTANTE)' : '';
+      const tags = m.tags.length ? ` [${m.tags.join(', ')}]` : '';
+      return `  • ${m.title}: ${m.content}${imp}${tags}`;
+    });
+    sections.push(`${label}:\n${lines.join('\n')}`);
+  }
+
+  return sections.join('\n\n');
 }
 
 export function exportMemory(memory: MemoryItem[], format: 'json' | 'txt' | 'md'): string {
