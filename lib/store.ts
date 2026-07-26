@@ -41,6 +41,7 @@ interface AppState {
   memory: MemoryItem[];
   isSpeaking: boolean;
   isListening: boolean;
+  speakingMessageId: string | null;
   pendingFiles: AttachedFile[];
   searchQuery: string;
   aiCenterData: AICenterData | null;
@@ -80,7 +81,7 @@ interface AppState {
   clearMemoryIndicator: () => void;
 
   // Voice / Files
-  setIsSpeaking: (v: boolean) => void;
+  setIsSpeaking: (v: boolean, messageId?: string | null) => void;
   setIsListening: (v: boolean) => void;
   addPendingFile: (file: AttachedFile) => void;
   removePendingFile: (id: string) => void;
@@ -114,6 +115,7 @@ export const useAppStore = create<AppState>()(
     memory: [],
     isSpeaking: false,
     isListening: false,
+    speakingMessageId: null,
     pendingFiles: [],
     searchQuery: '',
     aiCenterData: null,
@@ -570,7 +572,7 @@ export const useAppStore = create<AppState>()(
     },
 
     clearMemoryIndicator: () => set({ memoryIndicator: null }),
-    setIsSpeaking: (v) => set({ isSpeaking: v }),
+    setIsSpeaking: (v, messageId = null) => set({ isSpeaking: v, speakingMessageId: v ? messageId : null }),
     setIsListening: (v) => set({ isListening: v }),
     addPendingFile: (file) => set(s => ({ pendingFiles: [...s.pendingFiles, file] })),
     removePendingFile: (id) => set(s => ({ pendingFiles: s.pendingFiles.filter(f => f.id !== id) })),

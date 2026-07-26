@@ -23,10 +23,16 @@ export function useVoice() {
   });
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      synthRef.current = window.speechSynthesis;
-    }
+    if (typeof window === 'undefined') return;
+    const synth = window.speechSynthesis;
+    synthRef.current = synth;
+    const loadVoices = () => setVoicesLoaded(v => v + 1);
+    loadVoices();
+    synth.addEventListener('voiceschanged', loadVoices);
+    return () => synth.removeEventListener('voiceschanged', loadVoices);
   }, []);
+
+  const [voicesLoaded, setVoicesLoaded] = useState(0);
 
   /** Pick best available voice — prefer female Spanish voices */
   const selectVoice = useCallback((): SpeechSynthesisVoice | null => {
@@ -42,8 +48,8 @@ export function useVoice() {
       const n = v.name.toLowerCase();
       return n.includes('female') || n.includes('femenina') || n.includes('paulina') ||
              n.includes('mónica') || n.includes('monica') || n.includes('lucia') ||
-             n.includes('lucia') || n.includes('lupe') || n.includes('marisol') ||
-             n.includes('helena') || n.includes('jorge') === false;
+             n.includes('lupe') || n.includes('marisol') ||
+             n.includes('helena') || n.includes('google español');
     });
     if (femaleEsVoice) return femaleEsVoice;
     if (esVoices.length) return esVoices[0];
@@ -51,7 +57,7 @@ export function useVoice() {
     return fallback ?? null;
   }, [settings.voice.language]);
 
-  const speak = useCallback((text: string) => {
+  const speak = useCallback((text: string, messageId?: string) => {
     const synth = synthRef.current;
     if (!synth) return;
     synth.cancel();
@@ -73,7 +79,7 @@ export function useVoice() {
     let wordIdx = 0;
 
     utterance.onstart = () => {
-      setIsSpeaking(true);
+      setIsSpeaking(true, messageId);
       setVoiceState({ isSpeaking: true, isPaused: false, currentWord: words[0] ?? '', progress: 0 });
     };
     utterance.onboundary = (e) => {
@@ -84,21 +90,21 @@ export function useVoice() {
       }
     };
     utterance.onend = () => {
-      setIsSpeaking(false);
+      setIsSpeaking(false, null);
       setVoiceState({ isSpeaking: false, isPaused: false, currentWord: '', progress: 100 });
     };
     utterance.onerror = () => {
-      setIsSpeaking(false);
+      setIsSpeaking(false, null);
       setVoiceState({ isSpeaking: false, isPaused: false, currentWord: '', progress: 0 });
     };
 
     utteranceRef.current = utterance;
     synth.speak(utterance);
-  }, [settings.voice, selectVoice, setIsSpeaking]);
+  }, [settings.voice, selectVoice, setIsSpeaking, voicesLoaded]);
 
   const stopSpeaking = useCallback(() => {
     synthRef.current?.cancel();
-    setIsSpeaking(false);
+ setIsSpeaking(false, null);
     setVoiceState({ isSpeaking: false, isPaused: false, currentWord: '', progress: 0 });
   }, [setIsSpeaking]);
 

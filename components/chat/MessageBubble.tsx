@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 interface Props {
   message: Message;
   chatId: string;
-  onSpeak?: (text: string) => void;
+  onSpeak?: (text: string, messageId?: string) => void;
 }
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
@@ -59,7 +59,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
 }
 
 export function MessageBubble({ message, chatId, onSpeak }: Props) {
-  const { deleteMessage, regenerateResponse, editMessage, isSpeaking } = useAppStore();
+  const { deleteMessage, regenerateResponse, editMessage, isSpeaking, speakingMessageId } = useAppStore();
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -103,7 +103,7 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
             <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-[#1A1030] animate-pulse" />
           )}
           {/* Voice waves */}
-          {isSpeaking && !message.isStreaming && (
+          {isSpeaking && speakingMessageId === message.id && !message.isStreaming && (
             <div className="absolute -bottom-1 -right-1 flex items-end gap-0.5 bg-[#1A1030] rounded-full px-1 py-0.5 border border-purple-400/30">
               {[0, 1, 2, 3].map(i => (
                 <div
@@ -257,11 +257,24 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
                     </div>
                   );
                 }
+                if (file.type === 'audio' && file.dataUrl) {
+                  return (
+                    <div key={file.id} className="flex items-center gap-2 bg-white/10 rounded-lg p-2 max-w-md">
+                      <audio controls src={file.dataUrl} className="h-8 w-full max-w-[220px]" />
+                      <a
+                        href={file.dataUrl}
+                        download={file.name}
+                        className="p-1.5 rounded-lg bg-black/30 text-white hover:bg-black/50 transition-colors shrink-0"
+                        title="Descargar"
+                      >
+                        <Download size={14} />
+                      </a>
+                    </div>
+                  );
+                }
                 return (
                   <div key={file.id} className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2 text-xs max-w-md">
-                    {file.type === 'audio' ? (
-                      <Music size={14} className="text-blue-400 shrink-0" />
-                    ) : file.type === 'pdf' ? (
+                    {file.type === 'pdf' ? (
                       <FileText size={14} className="text-red-400 shrink-0" />
                     ) : (
                       <FileText size={14} className="text-purple-300 shrink-0" />
@@ -288,7 +301,7 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
 
           <div className="flex items-center gap-0.5 ml-1">
             <ActionBtn icon={copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />} label="Copiar" onClick={handleCopy} />
-            {!isUser && onSpeak && <ActionBtn icon={<Volume2 size={12} />} label="Leer" onClick={() => onSpeak(message.content)} />}
+            {!isUser && onSpeak && <ActionBtn icon={<Volume2 size={12} />} label="Leer" onClick={() => onSpeak(message.content, message.id)} />}
             {!isUser && <ActionBtn icon={<RefreshCw size={12} />} label="Regenerar" onClick={() => regenerateResponse(chatId, message.id)} />}
             <ActionBtn icon={<Edit2 size={12} />} label="Editar" onClick={() => setIsEditing(true)} />
             <ActionBtn icon={<Trash2 size={12} />} label="Eliminar" onClick={() => deleteMessage(chatId, message.id)} danger />
