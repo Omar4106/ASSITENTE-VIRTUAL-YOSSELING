@@ -182,29 +182,25 @@ function hasGemini(): boolean {
 
 /**
  * Select provider based on the routing policy:
- *   generate → OpenAI
+ *   generate → OpenAI (fallback: Pollinations free, no key needed)
  *   edit     → OpenAI
- *   analyze  → Gemini
+ *   analyze  → Gemini (fallback: OpenAI vision)
  *
  * Fallback:
- *   If the primary provider is not configured, we fall back to the other
- *   provider ONLY for analysis (Gemini → OpenAI vision). Generation and
- *   editing NEVER fall back to Gemini — they require OpenAI.
+ *   If OpenAI is not configured for generation, we fall back to
+ *   Pollinations.ai — a free image generation service that needs no API
+ *   key. This ensures Yosseling can always generate images.
  */
 export function selectProvider(mode: ImageMode | null): ImageRouterDecision {
   if (mode === 'generate') {
-    if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI DALL-E 3 for image generation', fallback: null };
-    return {
-      provider: null,
-      reason: 'OPENAI_API_KEY is required for image generation. Gemini is not used for generation.',
-      fallback: null,
-    };
+    if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI DALL-E 3 for image generation', fallback: 'pollinations' };
+    return { provider: 'pollinations', reason: 'Pollinations free image generation (no API key required)', fallback: null };
   }
   if (mode === 'edit') {
     if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI gpt-image-1 for image editing', fallback: null };
     return {
       provider: null,
-      reason: 'OPENAI_API_KEY is required for image editing. Gemini is not used for editing.',
+      reason: 'OPENAI_API_KEY is required for image editing. Configura OPENAI_API_KEY para editar imágenes.',
       fallback: null,
     };
   }
@@ -223,6 +219,7 @@ export function selectProvider(mode: ImageMode | null): ImageRouterDecision {
 export function listProviders(): Array<{ id: ImageProviderId; name: string; configured: boolean; roles: string[] }> {
   return [
     { id: 'openai', name: 'OpenAI (gpt-image-1)', configured: hasOpenAI(), roles: ['generate', 'edit'] },
+    { id: 'pollinations', name: 'Pollinations (Flux — gratis)', configured: true, roles: ['generate'] },
     { id: 'gemini', name: 'Gemini (Vision / OCR)', configured: hasGemini(), roles: ['analyze'] },
   ];
 }
@@ -234,12 +231,12 @@ class ImageRouter {
   private readonly maxHistory = 50;
 
   isConfigured(): boolean {
-    return hasOpenAI() || hasGemini();
+    return true; // Pollinations needs no key — always available
   }
 
-  /** True if generation/editing is possible (requires OpenAI). */
+  /** True if generation is possible (OpenAI or Pollinations free). */
   canGenerate(): boolean {
-    return hasOpenAI();
+    return true; // Pollinations is always available
   }
 
   /** True if analysis is possible (requires Gemini or OpenAI). */
@@ -399,11 +396,20 @@ class ImageRouter {
     negativePrompt: string,
   ): Promise<GeneratedImage> {
     if (provider === 'openai') {
-      const { generateWithOpenAI } = await import('./providers/openai');
-      return generateWithOpenAI(req);
+      try {
+        const { generateWithOpenAI } = await import('./providers/openai');
+        return await generateWithOpenAI(req);
+      } catch (err) {
+        console.log('[Image Router] OpenAI generate failed, falling back to Pollinations:', err instanceof Error ? err.message : String(err));
+        const { generateWithPollinations } = await import('./providers/pollinations');
+        return generateWithPollinations(req);
+      }
     }
-    // Gemini is NOT used for generation. This should never be reached.
-    throw new Error('Gemini is not used for image generation. Configure OPENAI_API_KEY.');
+    if (provider === 'pollinations') {
+      const { generateWithPollinations } = await import('./providers/pollinations');
+      return generateWithPollinations(req);
+    }
+    throw new Error(`Provider ${provider} is not supported for image generation.`);
   }
 
   private async callEdit(provider: ImageProviderId, req: EditImageRequest): Promise<GeneratedImage> {

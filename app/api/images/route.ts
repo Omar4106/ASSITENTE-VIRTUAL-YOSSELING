@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     if (!imageRouter.isConfigured()) {
       return NextResponse.json({
-        error: 'No image provider configured. Set OPENAI_API_KEY or GEMINI_API_KEY in .env.',
+        error: 'No image provider configured.',
       }, { status: 503 });
     }
 
