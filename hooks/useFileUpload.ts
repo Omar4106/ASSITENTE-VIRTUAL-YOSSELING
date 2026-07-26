@@ -37,7 +37,11 @@ export function useFileUpload() {
   const { addPendingFile } = useAppStore();
 
   const processFile = useCallback(async (file: File): Promise<AttachedFile | null> => {
-    const type = ACCEPTED_TYPES[file.type] || file.type.split('/')[1] || 'unknown';
+    // Images keep their full MIME type so downstream code can detect them
+    // via `type.startsWith('image/')`. Other files use the short category.
+    const type = file.type.startsWith('image/')
+      ? file.type
+      : (ACCEPTED_TYPES[file.type] || file.type.split('/')[1] || 'unknown');
 
     const attachedFile: AttachedFile = {
       id: genId(),
