@@ -20,7 +20,7 @@ export const AI_SETTINGS = {
 // FALLBACK CHAIN
 // Groq first (fastest, free) → OpenRouter → Gemini → Cerebras → OpenAI
 // ============================================================
-export const FALLBACK_ORDER: Provider[] = ['groq', 'openrouter', 'gemini', 'cerebras', 'openai'];
+export const FALLBACK_ORDER: Provider[] = ['groq', 'openrouter', 'gemini', 'cerebras', 'openai', 'anthropic'];
 
 // ============================================================
 // TASK → PROVIDER ROUTING
@@ -29,14 +29,14 @@ export const TASK_ROUTING: Record<TaskType, Provider> = {
   chat:       'groq',
   code:       'openrouter',
   math:       'groq',
-  document:   'gemini',
+  document:   'anthropic', // Anthropic Claude for PDF/document analysis
   ocr:        'gemini',
   translate:  'groq',
   analyze:    'gemini',
   summarize:  'groq',
   write:      'groq',
-  image_gen:  'openai',   // only OpenAI DALL-E for generation
-  image_read: 'gemini',   // Gemini for vision/reading images
+  image_gen:  'openai',
+  image_read: 'gemini',
 };
 
 // ============================================================
@@ -132,6 +132,16 @@ export const PROVIDER_CONFIG: Record<Exclude<Provider, 'auto'>, ProviderConfigTy
       { id: 'llama-3.1-8b', name: 'Llama 3.1 8B', description: 'Fast & efficient', contextWindow: 8192 },
     ],
   },
+  anthropic: {
+    name: 'Anthropic',
+    color: '#D97757',
+    apiBaseUrl: 'https://api.anthropic.com/v1',
+    envKey: 'ANTHROPIC_API_KEY',
+    models: [
+      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', description: 'Vision, PDFs, audio, reasoning', contextWindow: 200000, isDefault: true, supportsVision: true, supportsImageGen: false },
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', description: 'Fast multimodal', contextWindow: 200000, supportsVision: true },
+    ],
+  },
 };
 
 // ============================================================
@@ -159,9 +169,10 @@ export const PROVIDERS: Record<Provider, { name: string; color: string; apiKeyEn
   openrouter: { name: 'OpenRouter', color: '#6366F1', apiKeyEnv: 'OPENROUTER_API_KEY' },
   gemini:     { name: 'Gemini',     color: '#4285F4', apiKeyEnv: 'GEMINI_API_KEY' },
   cerebras:   { name: 'Cerebras',   color: '#00D9FF', apiKeyEnv: 'CEREBRAS_API_KEY' },
+  anthropic:  { name: 'Anthropic',  color: '#D97757', apiKeyEnv: 'ANTHROPIC_API_KEY' },
 };
 
-export const PROVIDER_ORDER: Provider[] = ['auto', 'groq', 'gemini', 'openrouter', 'cerebras', 'openai'];
+export const PROVIDER_ORDER: Provider[] = ['auto', 'groq', 'gemini', 'anthropic', 'openrouter', 'cerebras', 'openai'];
 
 export function getDefaultModel(): { id: string; provider: Provider } {
   const groqDefault = PROVIDER_CONFIG.groq.models.find(m => m.isDefault)!;
@@ -199,6 +210,7 @@ export function detectTaskType(content: string): TaskType {
   if (/\b(analiza|análisis|compara|evalúa|diagnostica)\b/.test(lower)) return 'analyze';
   if (/\b(escribe|redacta|carta|ensayo|artículo|blog)\b/.test(lower)) return 'write';
   if (/\b(pdf|documento|archivo|doc|docx|contrato)\b/.test(lower)) return 'document';
+  if (/\b(audio|grabaci[óo]n|voz del archivo|transcribe|transcribir|wav|mp3|m4a|ogg)\b/.test(lower)) return 'document';
   return 'chat';
 }
 
@@ -229,4 +241,5 @@ export const COST_PER_1K: Record<Exclude<Provider, 'auto'>, number> = {
   gemini:     0.000075,
   openrouter: 0.0005,
   cerebras:   0,
+  anthropic:  0.003,
 };

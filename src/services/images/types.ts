@@ -5,7 +5,7 @@
  * frontend. These types describe the public surface of the image pipeline.
  */
 
-export type ImageProviderId = 'openai' | 'gemini' | 'pollinations';
+export type ImageProviderId = 'openai' | 'gemini' | 'pollinations' | 'anthropic';
 
 export type ImageSize = '1024x1024' | '1024x1536' | '1536x1024';
 export type ImageQuality = 'low' | 'medium' | 'high';

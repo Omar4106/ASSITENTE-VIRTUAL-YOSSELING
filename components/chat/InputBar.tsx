@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon,
   FileText, X, Maximize2, Minimize2, Wand as Wand2, Sparkles,
-  ChevronDown, Eye, CreditCard as Edit3, Plus,
+  ChevronDown, Eye, CreditCard as Edit3, Plus, Music, FileAudio,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { useVoice } from '@/hooks/useVoice';
@@ -130,9 +130,17 @@ export function InputBar() {
                 key={file.id}
                 className="flex items-center gap-2 glass-card rounded-xl px-3 py-1.5"
               >
-                {file.dataUrl ? (
+                {file.dataUrl && file.type.startsWith('image/') ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={file.dataUrl} alt={file.name} className="w-8 h-8 object-cover rounded-lg" />
+                ) : file.type === 'audio' ? (
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
+                    <Music size={14} className="text-blue-400" />
+                  </div>
+                ) : file.type === 'pdf' ? (
+                  <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center shrink-0">
+                    <FileText size={14} className="text-red-400" />
+                  </div>
                 ) : (
                   <FileText size={14} className="text-purple-400" />
                 )}
@@ -361,7 +369,7 @@ export function InputBar() {
         type="file"
         className="hidden"
         multiple
-        accept=".pdf,.docx,.txt,.csv,.xlsx,.doc"
+        accept=".pdf,.docx,.txt,.csv,.xlsx,.doc,audio/*,.mp3,.wav,.ogg,.m4a,.aac"
         onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ''; }}
       />
       <input

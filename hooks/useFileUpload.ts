@@ -19,7 +19,19 @@ const ACCEPTED_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
   'image/gif': 'gif',
+  'audio/mpeg': 'audio',
+  'audio/mp3': 'audio',
+  'audio/wav': 'audio',
+  'audio/x-wav': 'audio',
+  'audio/ogg': 'audio',
+  'audio/m4a': 'audio',
+  'audio/x-m4a': 'audio',
+  'audio/webm': 'audio',
+  'audio/aac': 'audio',
+  'video/mp4': 'video',
 };
+
+const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.webm'];
 
 export function useFileUpload() {
   const { addPendingFile } = useAppStore();
@@ -35,13 +47,32 @@ export function useFileUpload() {
     };
 
     if (file.type.startsWith('image/')) {
+      // Images — read as data URL for preview + vision analysis
       const dataUrl = await new Promise<string>(resolve => {
         const reader = new FileReader();
         reader.onload = e => resolve(e.target?.result as string);
         reader.readAsDataURL(file);
       });
       attachedFile.dataUrl = dataUrl;
+    } else if (file.type === 'application/pdf' || type === 'pdf') {
+      // PDFs — read as data URL so the server can send the binary to Claude
+      const dataUrl = await new Promise<string>(resolve => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      attachedFile.dataUrl = dataUrl;
+    } else if (file.type.startsWith('audio/') || AUDIO_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext))) {
+      // Audio files — read as data URL for server-side analysis
+      const dataUrl = await new Promise<string>(resolve => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      attachedFile.dataUrl = dataUrl;
+      attachedFile.type = 'audio';
     } else {
+      // Text-based files — read as text
       const text = await new Promise<string>(resolve => {
         const reader = new FileReader();
         reader.onload = e => resolve(e.target?.result as string);

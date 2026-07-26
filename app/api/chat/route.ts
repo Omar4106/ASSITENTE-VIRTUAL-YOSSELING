@@ -224,6 +224,119 @@ function wrapGeminiStream(geminiRes: Response): Response {
   );
 }
 
+// ── Anthropic (Claude) caller — supports vision, PDF, and audio ────────────
+
+async function callAnthropic(
+  model: string,
+  messages: ChatMessage[],
+): Promise<Response> {
+  const apiKey = getEnvVar('ANTHROPIC_API_KEY');
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+
+  const systemMsg = messages.find(m => m.role === 'system');
+  const conversationMsgs = messages.filter(m => m.role !== 'system');
+
+  // Convert messages to Anthropic format
+  const anthropicMessages = conversationMsgs.map(m => {
+    const textContent = typeof m.content === 'string' ? m.content : '';
+
+    if (m.role === 'user' && m.attachments?.length) {
+      const content: Array<Record<string, unknown>> = [];
+
+      for (const att of m.attachments) {
+        if (att.type.startsWith('image/') && att.dataUrl) {
+          const [meta, b64] = att.dataUrl.split(',');
+          const mimeType = meta.match(/data:([^;]+)/)?.[1] ?? att.type;
+          content.push({
+            type: 'image',
+            source: { type: 'base64', media_type: mimeType, data: b64 },
+          });
+        } else if (att.type === 'pdf' && att.dataUrl) {
+          const [meta, b64] = att.dataUrl.split(',');
+          const mimeType = meta.match(/data:([^;]+)/)?.[1] ?? 'application/pdf';
+          content.push({
+            type: 'document',
+            source: { type: 'base64', media_type: mimeType, data: b64 },
+          });
+        } else if (att.content) {
+          content.push({ type: 'text', text: `[Archivo: ${att.name}]\n${att.content}` });
+        }
+      }
+
+      if (textContent) content.push({ type: 'text', text: textContent });
+      return { role: m.role, content };
+    }
+
+    return { role: m.role, content: textContent };
+  });
+
+  const body: Record<string, unknown> = {
+    model,
+    max_tokens: AI_SETTINGS.maxTokens,
+    stream: true,
+    messages: anthropicMessages,
+  };
+  if (systemMsg) {
+    body.system = typeof systemMsg.content === 'string' ? systemMsg.content : '';
+  }
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`anthropic: ${res.status} ${err.slice(0, 200)}`);
+  }
+
+  return wrapAnthropicStream(res);
+}
+
+function wrapAnthropicStream(anthropicRes: Response): Response {
+  const enc = new TextEncoder();
+  const reader = anthropicRes.body!.getReader();
+
+  return new Response(
+    new ReadableStream({
+      async start(ctrl) {
+        const dec = new TextDecoder();
+        let buf = '';
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop() ?? '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const raw = line.slice(6).trim();
+              if (!raw) continue;
+              try {
+                const event = JSON.parse(raw);
+                if (event.type === 'content_block_delta' && event.delta?.text) {
+                  ctrl.enqueue(enc.encode(
+                    `data: ${JSON.stringify({ choices: [{ delta: { content: event.delta.text } }] })}\n\n`
+                  ));
+                }
+              } catch { /* skip */ }
+            }
+          }
+          ctrl.enqueue(enc.encode('data: [DONE]\n\n'));
+        } finally {
+          ctrl.close();
+        }
+      },
+    })
+  );
+}
+
 /** Stream a Response to the client while collecting the full text in the
  *  background. The response is returned immediately so the client starts
  *  receiving tokens without waiting for the whole stream to finish. The
@@ -299,6 +412,9 @@ export async function POST(req: NextRequest) {
     const lastUserMsg = [...messages].reverse().find((m: ChatMessage) => m.role === 'user');
     const lastUserText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
     const hasImages = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => a.type.startsWith('image/') && Boolean(a.dataUrl)));
+    const hasPdfs = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => a.type === 'pdf' && Boolean(a.dataUrl)));
+    const hasAudio = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => (a.type === 'audio' || a.type.startsWith('audio/')) && Boolean(a.dataUrl)));
+    const hasDocuments = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => ['pdf', 'doc', 'docx'].includes(a.type) && Boolean(a.dataUrl)));
 
     // ── 1. Task detection ───────────────────────────────────────────────────
     const taskType: TaskType = detectTaskType(lastUserText);
@@ -418,7 +534,19 @@ ${realtimeContext.prompt}`
     const forcedProvider = (autoRoute || !provider || provider === 'auto')
       ? null
       : provider as Exclude<Provider, 'auto'>;
-    const decision = routeModel(lastUserText, hasImages, forcedProvider);
+
+    // If PDFs or audio are attached, force Anthropic (Claude handles PDFs natively)
+    let decision = routeModel(lastUserText, hasImages, forcedProvider);
+    if (!forcedProvider && (hasPdfs || hasAudio || hasDocuments) && getEnvVar('ANTHROPIC_API_KEY')) {
+      const anthropicModel = getProviderDefaultModel('anthropic');
+      decision = {
+        provider: 'anthropic',
+        model: anthropicModel,
+        taskType: 'document',
+        reason: 'Anthropic Claude for document/audio analysis',
+        chain: ['anthropic', ...(decision.chain ?? []).filter(p => p !== 'anthropic')],
+      };
+    }
 
     if (!decision.provider || !decision.model) {
       // No AI provider configured — but if we have realtime data, stream it
@@ -456,6 +584,8 @@ ${realtimeContext.prompt}`
         let response: Response;
         if (currentProvider === 'gemini') {
           response = await callGemini(currentModel, apiMessages);
+        } else if (currentProvider === 'anthropic') {
+          response = await callAnthropic(currentModel, apiMessages);
         } else {
           response = await callOpenAICompatible(currentProvider, currentModel, apiMessages);
         }

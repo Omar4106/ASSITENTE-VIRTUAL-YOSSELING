@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Check, RefreshCw, CreditCard as Edit2, Trash2, Volume2, ThumbsUp, ThumbsDown, MoveHorizontal as MoreHorizontal, User, Download } from 'lucide-react';
+import { Copy, Check, RefreshCw, CreditCard as Edit2, Trash2, Volume2, ThumbsUp, ThumbsDown, MoveHorizontal as MoreHorizontal, User, Download, FileText, Music } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { PROVIDERS } from '@/lib/ai-providers';
 import type { Message } from '@/types';
@@ -258,9 +258,16 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
                   );
                 }
                 return (
-                  <div key={file.id} className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2 py-1.5 text-xs">
-                    <span className="text-purple-300">📎</span>
-                    <span className="text-white/80 truncate max-w-[120px]">{file.name}</span>
+                  <div key={file.id} className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2 text-xs max-w-md">
+                    {file.type === 'audio' ? (
+                      <Music size={14} className="text-blue-400 shrink-0" />
+                    ) : file.type === 'pdf' ? (
+                      <FileText size={14} className="text-red-400 shrink-0" />
+                    ) : (
+                      <FileText size={14} className="text-purple-300 shrink-0" />
+                    )}
+                    <span className="text-white/80 truncate flex-1">{file.name}</span>
+                    <span className="text-[10px] text-white/40 shrink-0">{(file.size / 1024).toFixed(0)}KB</span>
                   </div>
                 );
               })}

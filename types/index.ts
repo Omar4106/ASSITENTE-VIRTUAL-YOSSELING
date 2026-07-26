@@ -3,7 +3,7 @@
  * No imports from other project files (avoid circular deps).
  */
 
-export type Provider = 'auto' | 'openai' | 'groq' | 'openrouter' | 'gemini' | 'cerebras';
+export type Provider = 'auto' | 'openai' | 'groq' | 'openrouter' | 'gemini' | 'cerebras' | 'anthropic';
 
 export type ModelId =
   | 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4-turbo'

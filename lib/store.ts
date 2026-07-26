@@ -243,9 +243,9 @@ export const useAppStore = create<AppState>()(
           .filter(m => !(m.role === 'assistant' && m.isStreaming))
           .map(m => ({ role: m.role, content: m.content }));
 
-        // Build the payload — include image data if files are attached
-        const hasImages = files?.some(f => f.type.startsWith('image/') && f.dataUrl);
-        const messagePayload = hasImages
+        // Build the payload — include attachment data if files are attached
+        const hasAttachments = files?.some(f => f.dataUrl || f.content);
+        const messagePayload = hasAttachments
           ? chatMsgs.map((m, i) => {
               if (i === chatMsgs.length - 1 && m.role === 'user' && files?.length) {
                 return {

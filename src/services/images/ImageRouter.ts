@@ -179,6 +179,9 @@ function hasOpenAI(): boolean {
 function hasGemini(): boolean {
   return Boolean(getEnvVar('GEMINI_API_KEY'));
 }
+function hasAnthropic(): boolean {
+  return Boolean(getEnvVar('ANTHROPIC_API_KEY'));
+}
 
 /**
  * Select provider based on the routing policy:
@@ -205,11 +208,12 @@ export function selectProvider(mode: ImageMode | null): ImageRouterDecision {
     };
   }
   if (mode === 'analyze') {
-    if (hasGemini()) return { provider: 'gemini', reason: 'Gemini Vision for image analysis', fallback: hasOpenAI() ? 'openai' : null };
+    if (hasGemini()) return { provider: 'gemini', reason: 'Gemini Vision for image analysis', fallback: hasAnthropic() ? 'anthropic' : (hasOpenAI() ? 'openai' : null) };
+    if (hasAnthropic()) return { provider: 'anthropic', reason: 'Anthropic Claude vision for image analysis', fallback: hasOpenAI() ? 'openai' : null };
     if (hasOpenAI()) return { provider: 'openai', reason: 'OpenAI GPT-4o Vision (Gemini not configured)', fallback: null };
     return {
       provider: null,
-      reason: 'GEMINI_API_KEY or OPENAI_API_KEY is required for image analysis.',
+      reason: 'GEMINI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY is required for image analysis.',
       fallback: null,
     };
   }
@@ -221,6 +225,7 @@ export function listProviders(): Array<{ id: ImageProviderId; name: string; conf
     { id: 'openai', name: 'OpenAI (gpt-image-1)', configured: hasOpenAI(), roles: ['generate', 'edit'] },
     { id: 'pollinations', name: 'Pollinations (Flux — gratis)', configured: true, roles: ['generate'] },
     { id: 'gemini', name: 'Gemini (Vision / OCR)', configured: hasGemini(), roles: ['analyze'] },
+    { id: 'anthropic', name: 'Anthropic Claude (Vision / PDF / Audio)', configured: hasAnthropic(), roles: ['analyze'] },
   ];
 }
 
@@ -239,9 +244,9 @@ class ImageRouter {
     return true; // Pollinations is always available
   }
 
-  /** True if analysis is possible (requires Gemini or OpenAI). */
+  /** True if analysis is possible (requires Gemini, Anthropic, or OpenAI). */
   canAnalyze(): boolean {
-    return hasGemini() || hasOpenAI();
+    return hasGemini() || hasAnthropic() || hasOpenAI();
   }
 
   detect(message: string, hasImageAttachment = false): ImageIntent {
@@ -425,6 +430,10 @@ class ImageRouter {
     if (provider === 'gemini') {
       const { analyzeWithGemini } = await import('./providers/gemini');
       return analyzeWithGemini(req);
+    }
+    if (provider === 'anthropic') {
+      const { analyzeWithAnthropic } = await import('./providers/anthropic');
+      return analyzeWithAnthropic(req);
     }
     const { analyzeWithOpenAI } = await import('./providers/openai');
     return analyzeWithOpenAI(req);
