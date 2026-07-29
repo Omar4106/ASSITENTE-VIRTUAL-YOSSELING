@@ -46,9 +46,10 @@ export async function generateWithPollinations(req: GenerateImageRequest): Promi
 
   const { width, height } = sizeToDimensions(req.size);
   const seed = Math.floor(Math.random() * 1_000_000);
-  const encoded = encodeURIComponent(fullPrompt.slice(0, 500));
+  const encoded = encodeURIComponent(fullPrompt.slice(0, 2000));
 
-  const url = `${POLLINATIONS_BASE}/${encoded}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`;
+  const model = req.style === 'realista' || req.style === 'fotografia' ? 'flux-realism' : 'flux';
+  const url = `${POLLINATIONS_BASE}/${encoded}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=${model}&enhance=true`;
 
   console.log('[Image Router] Pollinations URL:', url.slice(0, 120) + '...');
 

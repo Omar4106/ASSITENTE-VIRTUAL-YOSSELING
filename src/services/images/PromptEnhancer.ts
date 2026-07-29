@@ -126,12 +126,13 @@ export function enhancePrompt(
 
   const parts: string[] = [];
 
+  // User's subject FIRST — this is what matters most for precision.
+  parts.push(subject);
+
   const preset = style ? STYLE_PRESETS[style] : null;
   if (preset) {
     parts.push(...preset.positive);
   }
-
-  parts.push(subject);
 
   const qMods = QUALITY_MODIFIERS[quality ?? 'medium'] ?? QUALITY_MODIFIERS.medium;
   parts.push(...qMods);

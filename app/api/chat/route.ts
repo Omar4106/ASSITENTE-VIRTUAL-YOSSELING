@@ -146,8 +146,11 @@ async function callGemini(model: string, messages: ChatMessage[]): Promise<Respo
     const imgAttachments = m.attachments?.filter(a => a.type.startsWith('image/') && a.dataUrl) ?? [];
     const audioAttachments = m.attachments?.filter(a => (a.type === 'audio' || a.type.startsWith('audio/')) && a.dataUrl) ?? [];
     const docAttachments = m.attachments?.filter(a => !a.type.startsWith('image/') && !(a.type === 'audio' || a.type.startsWith('audio/')) && a.content) ?? [];
+    const binaryDocAttachments = m.attachments?.filter(a =>
+      ['pdf', 'docx', 'doc'].includes(a.type) && a.dataUrl
+    ) ?? [];
 
-    if (imgAttachments.length === 0 && audioAttachments.length === 0 && docAttachments.length === 0) {
+    if (imgAttachments.length === 0 && audioAttachments.length === 0 && docAttachments.length === 0 && binaryDocAttachments.length === 0) {
       return { role, parts: [{ text: textContent }] };
     }
 
@@ -160,6 +163,11 @@ async function callGemini(model: string, messages: ChatMessage[]): Promise<Respo
     for (const audio of audioAttachments) {
       const [meta, b64] = (audio.dataUrl ?? '').split(',');
       const mimeType = meta.match(/data:([^;]+)/)?.[1] ?? 'audio/mp3';
+      parts.push({ inlineData: { mimeType, data: b64 } });
+    }
+    for (const doc of binaryDocAttachments) {
+      const [meta, b64] = (doc.dataUrl ?? '').split(',');
+      const mimeType = meta.match(/data:([^;]+)/)?.[1] ?? 'application/octet-stream';
       parts.push({ inlineData: { mimeType, data: b64 } });
     }
     for (const doc of docAttachments) {
@@ -419,8 +427,8 @@ export async function POST(req: NextRequest) {
     const lastUserText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
     const hasImages = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => a.type.startsWith('image/') && Boolean(a.dataUrl)));
     const hasPdfs = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => a.type === 'pdf' && Boolean(a.dataUrl)));
-    const hasAudio = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => (a.type === 'audio' || a.type.startsWith('audio/')) && Boolean(a.dataUrl)));
     const hasDocuments = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => ['pdf', 'doc', 'docx'].includes(a.type) && Boolean(a.dataUrl)));
+    const hasAudio = Boolean(lastUserMsg?.attachments?.some((a: { type: string; dataUrl?: string }) => (a.type === 'audio' || a.type.startsWith('audio/')) && Boolean(a.dataUrl)));
 
     // ── 1. Task detection ───────────────────────────────────────────────────
     const taskType: TaskType = detectTaskType(lastUserText);
@@ -431,7 +439,13 @@ export async function POST(req: NextRequest) {
     // call the LLM — it delegates to the Image Router which talks to
     // OpenAI Images or Gemini directly.
     const imageIntent = imageRouter.detect(lastUserText, hasImages);
-    if (imageIntent.needsImage && imageIntent.mode) {
+
+    // Only redirect to the Image Router for generate/edit. When the user
+    // attaches an image and asks a question (analyze mode), we route through
+    // the chat with full vision + conversation context so the AI can solve
+    // exercises, answer questions, and reason about the image — not just
+    // describe it.
+    if (imageIntent.needsImage && (imageIntent.mode === 'generate' || imageIntent.mode === 'edit')) {
       console.log('[Image Router]');
       console.log('[Prompt Detected]');
       console.log(`  mode: ${imageIntent.mode} confidence: ${imageIntent.confidence}`);
@@ -545,7 +559,7 @@ ${realtimeContext.prompt}`
     // If audio is attached, prefer Gemini (handles audio natively) — only fall
     // back to Anthropic if Gemini is unavailable.
     let decision = routeModel(lastUserText, hasImages, forcedProvider);
-    if (!forcedProvider && hasPdfs && getEnvVar('ANTHROPIC_API_KEY')) {
+    if (!forcedProvider && hasDocuments && getEnvVar('ANTHROPIC_API_KEY')) {
       const anthropicModel = getProviderDefaultModel('anthropic');
       decision = {
         provider: 'anthropic',
@@ -555,7 +569,7 @@ ${realtimeContext.prompt}`
         chain: ['anthropic', ...(decision.chain ?? []).filter(p => p !== 'anthropic')],
       };
     }
-    if (!forcedProvider && hasAudio && !hasPdfs) {
+    if (!forcedProvider && hasAudio && !hasDocuments) {
       if (getEnvVar('GEMINI_API_KEY')) {
         const geminiModel = getProviderDefaultModel('gemini');
         decision = {

@@ -58,8 +58,10 @@ export function useFileUpload() {
         reader.readAsDataURL(file);
       });
       attachedFile.dataUrl = dataUrl;
-    } else if (file.type === 'application/pdf' || type === 'pdf') {
-      // PDFs — read as data URL so the server can send the binary to Claude
+    } else if (file.type === 'application/pdf' || type === 'pdf' ||
+               file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || type === 'docx' ||
+               file.type === 'application/msword' || type === 'doc') {
+      // PDF / DOC / DOCX — read as data URL so the server can send binary to Claude/Gemini
       const dataUrl = await new Promise<string>(resolve => {
         const reader = new FileReader();
         reader.onload = e => resolve(e.target?.result as string);
