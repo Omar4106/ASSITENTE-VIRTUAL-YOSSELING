@@ -3,6 +3,8 @@
 import { useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
+import { useAuthStore } from '@/lib/auth';
+import { AuthScreen } from '@/components/auth/AuthScreen';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ToolsPanel } from '@/components/tools/ToolsPanel';
@@ -44,10 +46,12 @@ function SidebarOverlayPanel() {
 
 export default function Home() {
   const { initStore, sidebarOpen, rightPanelOpen, createNewChat } = useAppStore();
+  const { user, isReady, init, logout } = useAuthStore();
 
   useEffect(() => {
+    init();
     initStore();
-  }, [initStore]);
+  }, [init, initStore]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -61,9 +65,52 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
+  if (!isReady) {
+    return (
+      <>
+        <CinematicBackground />
+        <div className="relative flex h-dvh items-center justify-center" style={{ zIndex: 1 }}>
+          <motion.div
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ repeat: Infinity, duration: 1.5 }}
+            className="text-5xl"
+          >
+            🔐
+          </motion.div>
+        </div>
+      </>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <CinematicBackground />
+        <div className="relative" style={{ zIndex: 1 }}>
+          <AuthScreen />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <CinematicBackground />
+
+      {/* Floating user badge */}
+      <div className="fixed top-3 right-3 z-50 flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-full bg-black/40 backdrop-blur-md border border-white/10 px-3 py-1.5">
+          <span className="text-lg">{user.avatar_emoji}</span>
+          <span className="text-sm text-white/70 font-medium">{user.display_name}</span>
+          <button
+            onClick={logout}
+            className="text-xs text-white/40 hover:text-red-400 transition-colors ml-1"
+            title="Cerrar sesión"
+          >
+            Salir
+          </button>
+        </div>
+      </div>
 
       <main className="relative flex h-dvh w-full overflow-hidden" style={{ zIndex: 1 }}>
         {/* ── LEFT: Sidebar ── */}
