@@ -3,35 +3,27 @@
 import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 
-export interface SealUser {
+export interface AuthUser {
   id: string;
-  display_name: string;
-  avatar_emoji: string;
+  email: string;
+  displayName: string;
+  avatarEmoji: string;
 }
 
 interface AuthState {
-  user: SealUser | null;
+  user: AuthUser | null;
   isReady: boolean;
   isLoading: boolean;
   error: string | null;
 
   init: () => Promise<void>;
-  register: (displayName: string, seal: string[], avatarEmoji: string) => Promise<{ success: boolean; error?: string }>;
-  login: (displayName: string, seal: string[]) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  register: (email: string, password: string, displayName: string, avatarEmoji: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
   clearError: () => void;
 }
 
-const STORAGE_KEY = 'yosseling-seal-user';
-
-async function hashSeal(seal: string[]): Promise<string> {
-  const text = seal.join('::');
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
+const AVATAR_DEFAULT = '🌟';
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
   user: null,
@@ -41,9 +33,9 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   init: async () => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const user = JSON.parse(raw) as SealUser;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const user = await loadProfile(session.user.id, session.user.email ?? '');
         set({ user, isReady: true });
         return;
       }
@@ -51,41 +43,56 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     set({ isReady: true });
   },
 
-  register: async (displayName, seal, avatarEmoji) => {
+  register: async (email, password, displayName, avatarEmoji) => {
     set({ isLoading: true, error: null });
     try {
-      const sealHash = await hashSeal(seal);
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            display_name: displayName,
+            avatar_emoji: avatarEmoji,
+          },
+        },
+      });
 
-      const { data: existing } = await supabase
-        .from('user_seals')
-        .select('id')
-        .eq('display_name', displayName)
-        .maybeSingle();
-
-      if (existing) {
-        set({ isLoading: false, error: 'Ese nombre ya está registrado. Elige otro.' });
-        return { success: false, error: 'Ese nombre ya está registrado.' };
+      if (error) {
+        const msg = translateError(error.message);
+        set({ isLoading: false, error: msg });
+        return { success: false, error: msg };
       }
 
-      const { data, error } = await supabase
+      if (!data.user) {
+        set({ isLoading: false, error: 'No se pudo crear la cuenta.' });
+        return { success: false, error: 'No se pudo crear la cuenta.' };
+      }
+
+      // Create the user_seals profile row
+      const { error: profileError } = await supabase
         .from('user_seals')
         .insert({
+          user_id: data.user.id,
           display_name: displayName,
-          seal_hash: sealHash,
-          seal_emoji_count: seal.length,
-          seal_first_emoji: seal[0],
+          seal_hash: '',
+          seal_emoji_count: 0,
+          seal_first_emoji: null,
           avatar_emoji: avatarEmoji,
-        })
-        .select('id, display_name, avatar_emoji')
-        .single();
+        });
 
-      if (error || !data) {
-        set({ isLoading: false, error: 'No se pudo registrar. Intenta de nuevo.' });
-        return { success: false, error: 'No se pudo registrar.' };
+      if (profileError) {
+        // Profile creation failed — clean up the auth account
+        await supabase.auth.signOut();
+        set({ isLoading: false, error: 'No se pudo crear tu perfil. Intenta de nuevo.' });
+        return { success: false, error: 'No se pudo crear tu perfil.' };
       }
 
-      const user: SealUser = { id: data.id, display_name: data.display_name, avatar_emoji: data.avatar_emoji };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+      const user: AuthUser = {
+        id: data.user.id,
+        email: data.user.email ?? email,
+        displayName,
+        avatarEmoji,
+      };
       set({ user, isLoading: false });
       return { success: true };
     } catch {
@@ -94,34 +101,33 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
   },
 
-  login: async (displayName, seal) => {
+  login: async (email, password) => {
     set({ isLoading: true, error: null });
     try {
-      const sealHash = await hashSeal(seal);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-      const { data, error } = await supabase
-        .from('user_seals')
-        .select('id, display_name, avatar_emoji, seal_hash')
-        .eq('display_name', displayName)
-        .maybeSingle();
-
-      if (error || !data) {
-        set({ isLoading: false, error: 'No encontramos ese nombre. ¿Está bien escrito?' });
-        return { success: false, error: 'No encontramos ese nombre.' };
+      if (error) {
+        const msg = translateError(error.message);
+        set({ isLoading: false, error: msg });
+        return { success: false, error: msg };
       }
 
-      if (data.seal_hash !== sealHash) {
-        set({ isLoading: false, error: 'El sello no coincide. Intenta de nuevo.' });
-        return { success: false, error: 'El sello no coincide.' };
+      if (!data.user) {
+        set({ isLoading: false, error: 'No se pudo iniciar sesión.' });
+        return { success: false, error: 'No se pudo iniciar sesión.' };
       }
 
+      const user = await loadProfile(data.user.id, data.user.email ?? email);
+
+      // Update last_login_at
       await supabase
         .from('user_seals')
         .update({ last_login_at: new Date().toISOString() })
-        .eq('id', data.id);
+        .eq('user_id', data.user.id);
 
-      const user: SealUser = { id: data.id, display_name: data.display_name, avatar_emoji: data.avatar_emoji };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
       set({ user, isLoading: false });
       return { success: true };
     } catch {
@@ -130,10 +136,47 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
   },
 
-  logout: () => {
-    localStorage.removeItem(STORAGE_KEY);
+  logout: async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch { /* ignore */ }
     set({ user: null });
   },
 
   clearError: () => set({ error: null }),
 }));
+
+async function loadProfile(userId: string, email: string): Promise<AuthUser> {
+  const { data } = await supabase
+    .from('user_seals')
+    .select('display_name, avatar_emoji')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  return {
+    id: userId,
+    email,
+    displayName: data?.display_name ?? email.split('@')[0],
+    avatarEmoji: data?.avatar_emoji ?? AVATAR_DEFAULT,
+  };
+}
+
+function translateError(msg: string): string {
+  const lower = msg.toLowerCase();
+  if (lower.includes('already registered') || lower.includes('already been registered')) {
+    return 'Ese correo ya está registrado. Intenta con otro.';
+  }
+  if (lower.includes('invalid login') || lower.includes('invalid credentials')) {
+    return 'Correo o contraseña incorrectos.';
+  }
+  if (lower.includes('email rate limit')) {
+    return 'Demasiados intentos. Espera unos minutos.';
+  }
+  if (lower.includes('password')) {
+    return 'La contraseña debe tener al menos 6 caracteres.';
+  }
+  if (lower.includes('email')) {
+    return 'El correo no es válido.';
+  }
+  return msg;
+}

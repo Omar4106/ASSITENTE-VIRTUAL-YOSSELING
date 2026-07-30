@@ -4,7 +4,7 @@ import { useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { useAuthStore } from '@/lib/auth';
-import { AuthScreen } from '@/components/auth/AuthScreen';
+import { supabase } from '@/lib/supabase';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ToolsPanel } from '@/components/tools/ToolsPanel';
@@ -51,6 +51,31 @@ export default function Home() {
   useEffect(() => {
     init();
     initStore();
+
+    // Listen for auth state changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      (async () => {
+        if (session) {
+          const { data } = await supabase
+            .from('user_seals')
+            .select('display_name, avatar_emoji')
+            .eq('user_id', session.user.id)
+            .maybeSingle();
+          useAuthStore.setState({
+            user: {
+              id: session.user.id,
+              email: session.user.email ?? '',
+              displayName: data?.display_name ?? session.user.email?.split('@')[0] ?? '',
+              avatarEmoji: data?.avatar_emoji ?? '🌟',
+            },
+          });
+        } else {
+          useAuthStore.setState({ user: null });
+        }
+      })();
+    });
+
+    return () => { subscription.unsubscribe(); };
   }, [init, initStore]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -82,12 +107,20 @@ export default function Home() {
     );
   }
 
+  // Middleware redirects unauthenticated users to /login, but this is a
+  // safety net for the brief window before the redirect completes.
   if (!user) {
     return (
       <>
         <CinematicBackground />
-        <div className="relative" style={{ zIndex: 1 }}>
-          <AuthScreen />
+        <div className="relative flex h-dvh items-center justify-center" style={{ zIndex: 1 }}>
+          <motion.div
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ repeat: Infinity, duration: 1.5 }}
+            className="text-5xl"
+          >
+            🔐
+          </motion.div>
         </div>
       </>
     );

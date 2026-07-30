@@ -124,17 +124,8 @@ export const useAppStore = create<AppState>()(
     initStore: async () => {
       const settings = loadSettings();
       const [chats, memory] = await Promise.all([getAllChats(), getAllMemory()]);
-      // Pull display name from auth store if available
-      let userName = settings.userName;
-      try {
-        const raw = localStorage.getItem('yosseling-seal-user');
-        if (raw) {
-          const sealUser = JSON.parse(raw);
-          if (sealUser.display_name) userName = sealUser.display_name;
-        }
-      } catch { /* ignore */ }
       set({
-        settings: { ...settings, userName },
+        settings,
         chats,
         memory,
         selectedModel: settings.defaultModel,

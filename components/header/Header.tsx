@@ -119,8 +119,8 @@ export function Header() {
         >
           {user ? (
             <>
-              <span className="text-base">{user.avatar_emoji}</span>
-              <span className="text-xs text-white font-medium hidden sm:inline">{user.display_name}</span>
+              <span className="text-base">{user.avatarEmoji}</span>
+              <span className="text-xs text-white font-medium hidden sm:inline">{user.displayName}</span>
             </>
           ) : (
             <User size={14} className="text-white" />

@@ -3,81 +3,46 @@
 import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
-
-const EMOJI_POOL = [
-  '🌟', '🌙', '☀️', '🔥', '⚡', '❄️', '🌈', '💫',
-  '🦋', '🌸', '🌺', '🌻', '🌹', '🍀', '🌿', '🌊',
-  '🐱', '🦊', '🐺', '🦉', '🦅', '🐉', '🦄', '🐝',
-  '💎', '🔮', '🎭', '🎨', '🎵', '🎸', '🎹', '🥁',
-  '🚀', '🌍', '🔭', '⭐', '✨', '🎈', '🎁', '🏆',
-  '🍕', '🌮', '🍣', '🍓', '🫐', '🥑', '☕', '🍫',
-  '⚽', '🏀', '🎮', '🎲', '♟️', '🎯', '🎳', '🧩',
-  '💡', '📖', '✏️', '🔑', '🔒', '🧊', '🌋', '🗺️',
-];
+import { Eye, EyeOff, Mail, Lock, User, Sparkles } from 'lucide-react';
 
 const AVATAR_EMOJIS = ['🌟', '🦋', '🦊', '🦉', '🐉', '🦄', '🐱', '🐺', '💎', '🔥', '⚡', '🌙'];
-
-const SEAL_MIN = 4;
-const SEAL_MAX = 8;
 
 type Mode = 'welcome' | 'register' | 'login';
 
 export function AuthScreen() {
-  const { init, register, login, isLoading, error, clearError } = useAuthStore();
+  const { register, login, isLoading, error, clearError } = useAuthStore();
   const [mode, setMode] = useState<Mode>('welcome');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [displayName, setDisplayName] = useState('');
-  const [seal, setSeal] = useState<string[]>([]);
   const [avatarEmoji, setAvatarEmoji] = useState(AVATAR_EMOJIS[0]);
-  const [loginHint, setLoginHint] = useState<string | null>(null);
 
   const resetState = useCallback(() => {
-    setSeal([]);
+    setEmail('');
+    setPassword('');
     setDisplayName('');
     setAvatarEmoji(AVATAR_EMOJIS[0]);
-    setLoginHint(null);
+    setShowPassword(false);
     clearError();
   }, [clearError]);
 
-  const handleAddEmoji = useCallback((emoji: string) => {
-    setSeal(prev => prev.length < SEAL_MAX ? [...prev, emoji] : prev);
-  }, []);
-
-  const handleRemoveLast = useCallback(() => {
-    setSeal(prev => prev.slice(0, -1));
-  }, []);
-
-  const handleClearSeal = useCallback(() => {
-    setSeal([]);
-  }, []);
+  const isValidEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
 
   const handleRegister = useCallback(async () => {
+    if (!isValidEmail(email)) return;
+    if (password.length < 6) return;
     if (displayName.trim().length < 2) return;
-    if (seal.length < SEAL_MIN) return;
-    const result = await register(displayName.trim(), seal, avatarEmoji);
+    const result = await register(email.trim(), password, displayName.trim(), avatarEmoji);
     if (result.success) resetState();
-  }, [displayName, seal, avatarEmoji, register, resetState]);
+  }, [email, password, displayName, avatarEmoji, register, resetState]);
 
   const handleLogin = useCallback(async () => {
-    if (displayName.trim().length < 2) return;
-    if (seal.length < SEAL_MIN) return;
-    const result = await login(displayName.trim(), seal);
+    if (!isValidEmail(email)) return;
+    if (password.length < 1) return;
+    const result = await login(email.trim(), password);
     if (result.success) resetState();
-  }, [displayName, seal, login, resetState]);
-
-  const handleNameLookup = useCallback(async (name: string) => {
-    if (name.trim().length < 2) { setLoginHint(null); return; }
-    const { data } = await supabase
-      .from('user_seals')
-      .select('seal_emoji_count, seal_first_emoji')
-      .eq('display_name', name.trim())
-      .maybeSingle();
-    if (data) {
-      setLoginHint(`Tu sello tiene ${data.seal_emoji_count} emojis y empieza con ${data.seal_first_emoji}`);
-    } else {
-      setLoginHint(null);
-    }
-  }, []);
+  }, [email, password, login, resetState]);
 
   return (
     <div className="flex min-h-dvh items-center justify-center p-4 sm:p-6">
@@ -113,7 +78,11 @@ export function AuthScreen() {
         >
           <AnimatePresence mode="wait">
             {mode === 'welcome' && (
-              <WelcomeView key="welcome" onRegister={() => { resetState(); setMode('register'); }} onLogin={() => { resetState(); setMode('login'); }} />
+              <WelcomeView
+                key="welcome"
+                onRegister={() => { resetState(); setMode('register'); }}
+                onLogin={() => { resetState(); setMode('login'); }}
+              />
             )}
 
             {mode === 'register' && (
@@ -124,19 +93,57 @@ export function AuthScreen() {
                 exit={{ opacity: 0, x: -30 }}
                 transition={{ duration: 0.3 }}
               >
-                <h2 className="text-lg font-semibold text-white mb-1">Crea tu Sello de Emojis</h2>
-                <p className="text-sm text-white/50 mb-6">Sin correos ni contraseñas. Tu sello es tu llave.</p>
+                <h2 className="text-lg font-semibold text-white mb-1">Crear cuenta</h2>
+                <p className="text-sm text-white/50 mb-6">Correo y contraseña — seguro y rápido.</p>
 
-                {/* Name input */}
+                {/* Display name */}
                 <label className="block text-xs font-medium text-white/60 mb-2">¿Cómo te llamas?</label>
-                <input
-                  type="text"
-                  value={displayName}
-                  onChange={e => setDisplayName(e.target.value)}
-                  placeholder="Tu nombre"
-                  maxLength={24}
-                  className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors mb-5"
-                />
+                <div className="relative mb-4">
+                  <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={e => setDisplayName(e.target.value)}
+                    placeholder="Tu nombre"
+                    maxLength={24}
+                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-4 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
+                  />
+                </div>
+
+                {/* Email */}
+                <label className="block text-xs font-medium text-white/60 mb-2">Correo</label>
+                <div className="relative mb-4">
+                  <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="tu@correo.com"
+                    autoComplete="email"
+                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-4 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
+                  />
+                </div>
+
+                {/* Password */}
+                <label className="block text-xs font-medium text-white/60 mb-2">Contraseña (mín. 6 caracteres)</label>
+                <div className="relative mb-4">
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-10 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(p => !p)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
 
                 {/* Avatar picker */}
                 <label className="block text-xs font-medium text-white/60 mb-2">Elige tu avatar</label>
@@ -156,68 +163,6 @@ export function AuthScreen() {
                   ))}
                 </div>
 
-                {/* Seal display */}
-                <label className="block text-xs font-medium text-white/60 mb-2">
-                  Tu sello ({seal.length}/{SEAL_MAX}) — mínimo {SEAL_MIN}
-                </label>
-                <div className="rounded-2xl bg-black/30 border border-white/10 p-4 mb-4 min-h-[72px] flex items-center gap-2 flex-wrap">
-                  <AnimatePresence>
-                    {seal.length === 0 && (
-                      <motion.p
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="text-white/30 text-sm"
-                      >
-                        Selecciona emojis para crear tu sello...
-                      </motion.p>
-                    )}
-                    {seal.map((emoji, i) => (
-                      <motion.div
-                        key={`${emoji}-${i}`}
-                        initial={{ scale: 0, rotate: -90 }}
-                        animate={{ scale: 1, rotate: 0 }}
-                        exit={{ scale: 0, opacity: 0 }}
-                        transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                        className="text-3xl"
-                      >
-                        {emoji}
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                </div>
-
-                {/* Seal controls */}
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={handleRemoveLast}
-                    disabled={seal.length === 0}
-                    className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white/70 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Deshacer
-                  </button>
-                  <button
-                    onClick={handleClearSeal}
-                    disabled={seal.length === 0}
-                    className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white/70 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Limpiar
-                  </button>
-                </div>
-
-                {/* Emoji grid */}
-                <div className="grid grid-cols-8 gap-1.5 mb-6 max-h-[200px] overflow-y-auto rounded-xl p-2 bg-black/20">
-                  {EMOJI_POOL.map(emoji => (
-                    <button
-                      key={emoji}
-                      onClick={() => handleAddEmoji(emoji)}
-                      className="text-2xl aspect-square rounded-lg hover:bg-white/10 hover:scale-110 active:scale-95 transition-all"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-
                 {error && (
                   <motion.p
                     initial={{ opacity: 0, y: -10 }}
@@ -230,10 +175,10 @@ export function AuthScreen() {
 
                 <button
                   onClick={handleRegister}
-                  disabled={isLoading || displayName.trim().length < 2 || seal.length < SEAL_MIN}
+                  disabled={isLoading || !isValidEmail(email) || password.length < 6 || displayName.trim().length < 2}
                   className="w-full rounded-xl bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3.5 font-semibold text-white shadow-lg shadow-fuchsia-500/25 hover:shadow-fuchsia-500/40 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all"
                 >
-                  {isLoading ? 'Creando...' : 'Crear mi sello'}
+                  {isLoading ? 'Creando...' : 'Crear cuenta'}
                 </button>
 
                 <button
@@ -253,94 +198,42 @@ export function AuthScreen() {
                 exit={{ opacity: 0, x: -30 }}
                 transition={{ duration: 0.3 }}
               >
-                <h2 className="text-lg font-semibold text-white mb-1">Reproduce tu Sello</h2>
-                <p className="text-sm text-white/50 mb-6">Tu nombre + tu sello de emojis para entrar.</p>
+                <h2 className="text-lg font-semibold text-white mb-1">Iniciar sesión</h2>
+                <p className="text-sm text-white/50 mb-6">Bienvenido de vuelta.</p>
 
-                {/* Name input */}
-                <label className="block text-xs font-medium text-white/60 mb-2">Tu nombre</label>
-                <input
-                  type="text"
-                  value={displayName}
-                  onChange={e => {
-                    setDisplayName(e.target.value);
-                    handleNameLookup(e.target.value);
-                  }}
-                  placeholder="El nombre con el que te registraste"
-                  maxLength={24}
-                  className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors mb-2"
-                />
-                {loginHint && (
-                  <motion.p
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="text-xs text-fuchsia-300/70 mb-4 px-1"
-                  >
-                    {loginHint}
-                  </motion.p>
-                )}
-
-                {!loginHint && <div className="mb-4" />}
-
-                {/* Seal display */}
-                <label className="block text-xs font-medium text-white/60 mb-2">
-                  Tu sello ({seal.length}/{SEAL_MAX})
-                </label>
-                <div className="rounded-2xl bg-black/30 border border-white/10 p-4 mb-4 min-h-[72px] flex items-center gap-2 flex-wrap">
-                  <AnimatePresence>
-                    {seal.length === 0 && (
-                      <motion.p
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="text-white/30 text-sm"
-                      >
-                        Selecciona los emojis de tu sello...
-                      </motion.p>
-                    )}
-                    {seal.map((emoji, i) => (
-                      <motion.div
-                        key={`${emoji}-${i}`}
-                        initial={{ scale: 0, rotate: -90 }}
-                        animate={{ scale: 1, rotate: 0 }}
-                        exit={{ scale: 0, opacity: 0 }}
-                        transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                        className="text-3xl"
-                      >
-                        {emoji}
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
+                {/* Email */}
+                <label className="block text-xs font-medium text-white/60 mb-2">Correo</label>
+                <div className="relative mb-4">
+                  <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="tu@correo.com"
+                    autoComplete="email"
+                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-4 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
+                  />
                 </div>
 
-                {/* Seal controls */}
-                <div className="flex gap-2 mb-4">
+                {/* Password */}
+                <label className="block text-xs font-medium text-white/60 mb-2">Contraseña</label>
+                <div className="relative mb-4">
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-10 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
+                  />
                   <button
-                    onClick={handleRemoveLast}
-                    disabled={seal.length === 0}
-                    className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white/70 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    type="button"
+                    onClick={() => setShowPassword(p => !p)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
                   >
-                    Deshacer
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
-                  <button
-                    onClick={handleClearSeal}
-                    disabled={seal.length === 0}
-                    className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-white/70 hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Limpiar
-                  </button>
-                </div>
-
-                {/* Emoji grid */}
-                <div className="grid grid-cols-8 gap-1.5 mb-6 max-h-[200px] overflow-y-auto rounded-xl p-2 bg-black/20">
-                  {EMOJI_POOL.map(emoji => (
-                    <button
-                      key={emoji}
-                      onClick={() => handleAddEmoji(emoji)}
-                      className="text-2xl aspect-square rounded-lg hover:bg-white/10 hover:scale-110 active:scale-95 transition-all"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
                 </div>
 
                 {error && (
@@ -355,7 +248,7 @@ export function AuthScreen() {
 
                 <button
                   onClick={handleLogin}
-                  disabled={isLoading || displayName.trim().length < 2 || seal.length < SEAL_MIN}
+                  disabled={isLoading || !isValidEmail(email) || password.length < 1}
                   className="w-full rounded-xl bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3.5 font-semibold text-white shadow-lg shadow-fuchsia-500/25 hover:shadow-fuchsia-500/40 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all"
                 >
                   {isLoading ? 'Entrando...' : 'Entrar'}
@@ -371,6 +264,11 @@ export function AuthScreen() {
             )}
           </AnimatePresence>
         </div>
+
+        <p className="text-center text-xs text-white/30 mt-6 flex items-center justify-center gap-1.5">
+          <Sparkles size={12} />
+          Sesión protegida con cookies HttpOnly · Listo para producción
+        </p>
       </motion.div>
     </div>
   );
@@ -388,9 +286,8 @@ function WelcomeView({ onRegister, onLogin }: { onRegister: () => void; onLogin:
     >
       <h2 className="text-lg font-semibold text-white mb-2">Bienvenido a Yosseling</h2>
       <p className="text-sm text-white/50 mb-8 leading-relaxed">
-        Para entrar, necesitas un <span className="text-fuchsia-300 font-medium">Sello de Emojis</span> —
-        una secuencia personal de emojis que reemplaza a las contraseñas.
-        Sin correos, sin números, sin letras.
+        Crea tu cuenta con <span className="text-fuchsia-300 font-medium">correo y contraseña</span> —
+        seguro, rápido y listo para producción.
       </p>
 
       <div className="space-y-3">
@@ -398,13 +295,13 @@ function WelcomeView({ onRegister, onLogin }: { onRegister: () => void; onLogin:
           onClick={onRegister}
           className="w-full rounded-xl bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3.5 font-semibold text-white shadow-lg shadow-fuchsia-500/25 hover:shadow-fuchsia-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
         >
-          Crear mi sello
+          Crear cuenta
         </button>
         <button
           onClick={onLogin}
           className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3.5 font-semibold text-white/80 hover:bg-white/10 hover:scale-[1.02] active:scale-[0.98] transition-all"
         >
-          Ya tengo un sello
+          Ya tengo cuenta
         </button>
       </div>
     </motion.div>
