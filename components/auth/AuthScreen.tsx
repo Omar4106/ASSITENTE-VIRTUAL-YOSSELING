@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -24,14 +24,12 @@ const SEAL_MAX = 8;
 type Mode = 'welcome' | 'register' | 'login';
 
 export function AuthScreen() {
-  const { user, init, register, login, logout, isLoading, error, clearError } = useAuthStore();
+  const { init, register, login, isLoading, error, clearError } = useAuthStore();
   const [mode, setMode] = useState<Mode>('welcome');
   const [displayName, setDisplayName] = useState('');
   const [seal, setSeal] = useState<string[]>([]);
   const [avatarEmoji, setAvatarEmoji] = useState(AVATAR_EMOJIS[0]);
   const [loginHint, setLoginHint] = useState<string | null>(null);
-
-  useEffect(() => { init(); }, [init]);
 
   const resetState = useCallback(() => {
     setSeal([]);
@@ -80,12 +78,6 @@ export function AuthScreen() {
       setLoginHint(null);
     }
   }, []);
-
-  if (user) {
-    return (
-      <AuthGate user={user} onLogout={logout} />
-    );
-  }
 
   return (
     <div className="flex min-h-dvh items-center justify-center p-4 sm:p-6">
@@ -417,8 +409,4 @@ function WelcomeView({ onRegister, onLogin }: { onRegister: () => void; onLogin:
       </div>
     </motion.div>
   );
-}
-
-function AuthGate({ user, onLogout }: { user: { display_name: string; avatar_emoji: string }; onLogout: () => void }) {
-  return null;
 }

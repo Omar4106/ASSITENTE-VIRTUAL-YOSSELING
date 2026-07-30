@@ -45,8 +45,8 @@ function SidebarOverlayPanel() {
 }
 
 export default function Home() {
-  const { initStore, sidebarOpen, rightPanelOpen, createNewChat } = useAppStore();
-  const { user, isReady, init, logout } = useAuthStore();
+  const { initStore, sidebarOpen, sidebarView, createNewChat } = useAppStore();
+  const { user, isReady, init } = useAuthStore();
 
   useEffect(() => {
     init();
@@ -97,21 +97,6 @@ export default function Home() {
     <>
       <CinematicBackground />
 
-      {/* Floating user badge */}
-      <div className="fixed top-3 right-3 z-50 flex items-center gap-2">
-        <div className="flex items-center gap-2 rounded-full bg-black/40 backdrop-blur-md border border-white/10 px-3 py-1.5">
-          <span className="text-lg">{user.avatar_emoji}</span>
-          <span className="text-sm text-white/70 font-medium">{user.display_name}</span>
-          <button
-            onClick={logout}
-            className="text-xs text-white/40 hover:text-red-400 transition-colors ml-1"
-            title="Cerrar sesión"
-          >
-            Salir
-          </button>
-        </div>
-      </div>
-
       <main className="relative flex h-dvh w-full overflow-hidden" style={{ zIndex: 1 }}>
         {/* ── LEFT: Sidebar ── */}
         <AnimatePresence mode="wait">
@@ -126,7 +111,7 @@ export default function Home() {
             >
               <Sidebar />
               <AnimatePresence>
-                <SidebarOverlayPanel />
+                <SidebarOverlayPanel key={sidebarView} />
               </AnimatePresence>
             </motion.div>
           )}

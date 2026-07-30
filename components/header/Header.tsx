@@ -1,8 +1,9 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Sun, Moon, Bell, User, PanelRight, Menu, Zap } from 'lucide-react';
+import { Sun, Moon, Bell, User, PanelRight, Menu, Zap, LogOut } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { useAuthStore } from '@/lib/auth';
 import { ModelSelector } from './ModelSelector';
 import { PROVIDERS, PROVIDER_ORDER, MODELS_BY_PROVIDER } from '@/lib/ai-providers';
 import type { Provider } from '@/types';
@@ -15,6 +16,7 @@ export function Header() {
     sidebarOpen, setSidebarOpen,
     setSelectedModel,
   } = useAppStore();
+  const { user, logout } = useAuthStore();
 
   const isDark = settings.theme === 'dark';
 
@@ -110,10 +112,20 @@ export function Header() {
         </button>
 
         <div
-          className="w-8 h-8 rounded-full flex items-center justify-center border border-white/15"
-          style={{ background: 'linear-gradient(135deg, #FF5FD7 0%, #A855F7 100%)', boxShadow: '0 0 12px rgba(168, 85, 247, 0.2)' }}
+          className="flex items-center gap-2 rounded-full border border-white/15 px-2 py-1 cursor-pointer hover:border-white/30 transition-colors"
+          style={{ background: 'linear-gradient(135deg, rgba(255,95,215,0.15) 0%, rgba(168,85,247,0.15) 100%)' }}
+          onClick={logout}
+          title="Cerrar sesión"
         >
-          <User size={14} className="text-white" />
+          {user ? (
+            <>
+              <span className="text-base">{user.avatar_emoji}</span>
+              <span className="text-xs text-white font-medium hidden sm:inline">{user.display_name}</span>
+            </>
+          ) : (
+            <User size={14} className="text-white" />
+          )}
+          <LogOut size={12} className="text-white/40 hover:text-red-400 transition-colors" />
         </div>
       </div>
     </header>

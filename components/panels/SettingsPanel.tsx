@@ -80,12 +80,16 @@ export function SettingsPanel() {
         {/* User */}
         <Section icon={<User size={15} />} title="Usuario">
           <div className="space-y-3">
-            <LabeledInput
-              label="Nombre"
-              value={settings.userName}
-              onChange={v => save({ userName: v })}
-              placeholder="Tu nombre"
-            />
+            <div>
+              <label className="text-xs text-[#B3B3B3] block mb-1">Nombre (tu sello)</label>
+              <input
+                value={settings.userName}
+                readOnly
+                disabled
+                className="w-full bg-[#171923]/50 border border-white/[0.06] text-white/50 text-sm rounded-lg px-3 py-2 cursor-not-allowed"
+              />
+              <p className="text-[10px] text-[#B3B3B3]/50 mt-1">Tu nombre viene de tu Sello de Emojis. Cierra sesión para cambiarlo.</p>
+            </div>
           </div>
         </Section>
 
