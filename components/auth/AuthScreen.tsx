@@ -1,389 +1,696 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore } from '@/lib/auth';
-import { Eye, EyeOff, Mail, Lock, User, Sparkles, ShieldCheck, ArrowRight, ArrowLeft } from 'lucide-react';
+import {
+  Eye, EyeOff, Mail, Lock, Sparkles, ArrowRight, ArrowLeft,
+  Check, Flame, Gem, Shield,
+} from 'lucide-react';
 
-const AVATAR_EMOJIS = ['🌟', '🦋', '🦊', '🦉', '🐉', '🦄', '🐱', '🐺', '💎', '🔥', '⚡', '🌙'];
+const SEAL_SYMBOLS = [
+  { emoji: '🌟', name: 'Estrella',    color: '#FBBF24' },
+  { emoji: '🦋', name: 'Mariposa',    color: '#A78BFA' },
+  { emoji: '🦊', name: 'Zorro',       color: '#FB923C' },
+  { emoji: '🦉', name: 'Búho',        color: '#818CF8' },
+  { emoji: '🐉', name: 'Dragón',       color: '#34D399' },
+  { emoji: '🦄', name: 'Unicornio',    color: '#F472B6' },
+  { emoji: '🐱', name: 'Gato',        color: '#60A5FA' },
+  { emoji: '🐺', name: 'Lobo',        color: '#94A3B8' },
+  { emoji: '💎', name: 'Diamante',     color: '#22D3EE' },
+  { emoji: '🔥', name: 'Fuego',       color: '#EF4444' },
+  { emoji: '⚡', name: 'Rayo',        color: '#FCD34D' },
+  { emoji: '🌙', name: 'Luna',        color: '#C4B5FD' },
+];
 
-type Mode = 'welcome' | 'register' | 'login';
+type Step = 'forge' | 'inscribe' | 'bind' | 'seal' | 'complete';
+const FORGE_STEPS: Step[] = ['forge', 'inscribe', 'bind', 'seal'];
+
+type Mode = 'register' | 'login';
 
 export function AuthScreen() {
   const { register, login, isLoading, error, clearError } = useAuthStore();
-  const [mode, setMode] = useState<Mode>('welcome');
+  const [mode, setMode] = useState<Mode>('register');
+  const [stepIndex, setStepIndex] = useState(0);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [displayName, setDisplayName] = useState('');
-  const [avatarEmoji, setAvatarEmoji] = useState(AVATAR_EMOJIS[0]);
+  const [sealSymbol, setSealSymbol] = useState(SEAL_SYMBOLS[0]);
+  const [completed, setCompleted] = useState(false);
 
-  const resetState = useCallback(() => {
-    setEmail('');
-    setPassword('');
-    setDisplayName('');
-    setAvatarEmoji(AVATAR_EMOJIS[0]);
-    setShowPassword(false);
-    clearError();
-  }, [clearError]);
+  const currentStep = mode === 'login' ? 'bind' : FORGE_STEPS[stepIndex];
+  const [loginPassword, setLoginPassword] = useState('');
 
   const isValidEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+  const canAdvance = mode === 'login'
+    ? isValidEmail(email) && loginPassword.length >= 1
+    : currentStep === 'forge' ? !!sealSymbol
+    : currentStep === 'inscribe' ? displayName.trim().length >= 2
+    : currentStep === 'bind' ? isValidEmail(email)
+    : currentStep === 'seal' ? password.length >= 6
+    : false;
 
-  const handleRegister = useCallback(async () => {
-    if (!isValidEmail(email)) return;
-    if (password.length < 6) return;
-    if (displayName.trim().length < 2) return;
-    const result = await register(email.trim(), password, displayName.trim(), avatarEmoji);
-    if (result.success) resetState();
-  }, [email, password, displayName, avatarEmoji, register, resetState]);
+  const next = useCallback(async () => {
+    if (mode === 'login') {
+      const result = await login(email.trim(), loginPassword);
+      if (result.success) setCompleted(true);
+      return;
+    }
+    if (stepIndex < FORGE_STEPS.length - 1) {
+      clearError();
+      setStepIndex(i => i + 1);
+      return;
+    }
+    // Final step — register
+    const result = await register(email.trim(), password, displayName.trim(), sealSymbol.emoji);
+    if (result.success) setCompleted(true);
+  }, [mode, stepIndex, email, loginPassword, password, displayName, sealSymbol, register, login, clearError]);
 
-  const handleLogin = useCallback(async () => {
-    if (!isValidEmail(email)) return;
-    if (password.length < 1) return;
-    const result = await login(email.trim(), password);
-    if (result.success) resetState();
-  }, [email, password, login, resetState]);
+  const back = useCallback(() => {
+    clearError();
+    if (mode === 'login') { setMode('register'); setStepIndex(0); return; }
+    if (stepIndex > 0) setStepIndex(i => i - 1);
+    else { setMode('login'); }
+  }, [mode, stepIndex, clearError]);
+
+  // Reset everything
+  const resetAll = useCallback(() => {
+    setEmail(''); setPassword(''); setLoginPassword(''); setDisplayName('');
+    setSealSymbol(SEAL_SYMBOLS[0]); setShowPassword(false);
+    setStepIndex(0); setMode('register'); clearError();
+  }, [clearError]);
 
   return (
     <div className="flex min-h-dvh items-center justify-center p-4 sm:p-6 overflow-y-auto">
-      <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.96 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="w-full max-w-md my-auto"
-      >
-        {/* Logo + title */}
-        <div className="flex flex-col items-center mb-6 sm:mb-8">
-          <motion.div
-            initial={{ scale: 0, rotate: -180 }}
-            animate={{ scale: 1, rotate: 0 }}
-            transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.2 }}
-            className="relative mb-3"
-          >
-            <div
-              className="absolute inset-0 rounded-full blur-2xl opacity-60"
-              style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.5) 0%, transparent 70%)' }}
-            />
-            <div className="relative text-5xl sm:text-6xl">🔐</div>
-          </motion.div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Yosseling</h1>
-          <p className="text-xs sm:text-sm text-white/50 mt-1">Tu asistente inteligente</p>
-        </div>
+      <div className="w-full max-w-md my-auto">
+        {/* ── Progress ring (register mode) ── */}
+        <AnimatePresence>
+          {mode === 'register' && !completed && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="flex justify-center mb-4"
+            >
+              <ProgressRing step={stepIndex} total={FORGE_STEPS.length} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        <div
-          className="rounded-3xl p-5 sm:p-8"
+        {/* ── Main card ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 24, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          className="relative rounded-3xl overflow-hidden"
           style={{
-            background: 'rgba(18, 9, 31, 0.75)',
+            background: 'rgba(18, 9, 31, 0.78)',
             backdropFilter: 'blur(28px) saturate(1.5)',
             WebkitBackdropFilter: 'blur(28px) saturate(1.5)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
-            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.4)',
+            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.5)',
           }}
         >
-          <AnimatePresence mode="wait">
-            {mode === 'welcome' && (
-              <WelcomeView
-                key="welcome"
-                onRegister={() => { resetState(); setMode('register'); }}
-                onLogin={() => { resetState(); setMode('login'); }}
-              />
-            )}
+          {/* Animated glow background following step */}
+          <StepGlow step={currentStep} />
 
-            {mode === 'register' && (
-              <motion.div
-                key="register"
-                initial={{ opacity: 0, x: 30 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -30 }}
-                transition={{ duration: 0.3 }}
-              >
-                <BackButton onClick={() => { resetState(); setMode('welcome'); }} />
-                <h2 className="text-lg font-semibold text-white mb-1">Crear cuenta</h2>
-                <p className="text-sm text-white/50 mb-5">Correo y contraseña — seguro y rápido.</p>
+          <div className="relative p-6 sm:p-8">
+            <AnimatePresence mode="wait">
+              {completed ? (
+                <CompleteView key="complete" symbol={sealSymbol} name={displayName} />
+              ) : (
+                <motion.div
+                  key={currentStep + mode}
+                  initial={{ opacity: 0, x: 40 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -40 }}
+                  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  {currentStep === 'forge' && (
+                    <ForgeStep
+                      sealSymbol={sealSymbol}
+                      onSelect={setSealSymbol}
+                      onSwitchToLogin={() => { resetAll(); setMode('login'); }}
+                    />
+                  )}
+                  {currentStep === 'inscribe' && (
+                    <InscribeStep
+                      displayName={displayName}
+                      setDisplayName={setDisplayName}
+                      sealSymbol={sealSymbol}
+                      onBack={back}
+                    />
+                  )}
+                  {currentStep === 'bind' && (
+                    <BindStep
+                      email={email}
+                      setEmail={setEmail}
+                      mode={mode}
+                      loginPassword={loginPassword}
+                      setLoginPassword={setLoginPassword}
+                      showPassword={showPassword}
+                      setShowPassword={setShowPassword}
+                      onBack={back}
+                    />
+                  )}
+                  {currentStep === 'seal' && (
+                    <SealStep
+                      password={password}
+                      setPassword={setPassword}
+                      showPassword={showPassword}
+                      setShowPassword={setShowPassword}
+                      sealSymbol={sealSymbol}
+                      onBack={back}
+                    />
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-                <Field label="¿Cómo te llamas?" icon={<User size={16} />}>
-                  <input
-                    type="text"
-                    value={displayName}
-                    onChange={e => setDisplayName(e.target.value)}
-                    placeholder="Tu nombre"
-                    maxLength={24}
-                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-4 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
-                  />
-                </Field>
-
-                <Field label="Correo" icon={<Mail size={16} />}>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    placeholder="tu@correo.com"
-                    autoComplete="email"
-                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-4 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
-                  />
-                </Field>
-
-                <Field label="Contraseña (mín. 6 caracteres)" icon={<Lock size={16} />}>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    autoComplete="new-password"
-                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-10 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(p => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </Field>
-
-                {/* Avatar picker */}
-                <label className="block text-xs font-medium text-white/60 mb-2">Elige tu avatar</label>
-                <div className="grid grid-cols-6 gap-2 mb-5">
-                  {AVATAR_EMOJIS.map((emoji, i) => (
-                    <motion.button
-                      key={emoji}
-                      initial={{ scale: 0, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ delay: 0.3 + i * 0.03, type: 'spring', stiffness: 300 }}
-                      onClick={() => setAvatarEmoji(emoji)}
-                      className={`text-2xl aspect-square rounded-xl flex items-center justify-center transition-all ${
-                        avatarEmoji === emoji
-                          ? 'bg-fuchsia-500/30 border-2 border-fuchsia-400/60 scale-110'
-                          : 'bg-white/5 border border-white/10 hover:bg-white/10'
-                      }`}
+            {/* Error + action button */}
+            {!completed && (
+              <>
+                <AnimatePresence>
+                  {error && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      className="text-sm text-red-400 mt-4 text-center bg-red-500/10 rounded-lg py-2 px-3"
                     >
-                      {emoji}
-                    </motion.button>
-                  ))}
-                </div>
+                      {error}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
 
-                <ErrorBanner error={error} />
-
-                <SubmitButton
-                  onClick={handleRegister}
-                  disabled={isLoading || !isValidEmail(email) || password.length < 6 || displayName.trim().length < 2}
-                  loading={isLoading}
-                  loadingText="Creando..."
-                >
-                  Crear cuenta
-                </SubmitButton>
-              </motion.div>
+                <AnimatePresence>
+                  {!completed && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="mt-5"
+                    >
+                      <ActionButton
+                        onClick={next}
+                        disabled={!canAdvance || isLoading}
+                        loading={isLoading}
+                        step={currentStep}
+                        mode={mode}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </>
             )}
+          </div>
+        </motion.div>
 
-            {mode === 'login' && (
-              <motion.div
-                key="login"
-                initial={{ opacity: 0, x: 30 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -30 }}
-                transition={{ duration: 0.3 }}
-              >
-                <BackButton onClick={() => { resetState(); setMode('welcome'); }} />
-                <h2 className="text-lg font-semibold text-white mb-1">Iniciar sesión</h2>
-                <p className="text-sm text-white/50 mb-5">Bienvenido de vuelta.</p>
+        <p className="text-center text-xs text-white/25 mt-4">
+          Yosseling · Sesión protegida con cookies HttpOnly
+        </p>
+      </div>
+    </div>
+  );
+}
 
-                <Field label="Correo" icon={<Mail size={16} />}>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    placeholder="tu@correo.com"
-                    autoComplete="email"
-                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-4 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
-                  />
-                </Field>
+/* ── Step 1: Forge — choose your seal symbol ─────────────────── */
 
-                <Field label="Contraseña" icon={<Lock size={16} />}>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                    className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-10 py-3 text-white placeholder-white/30 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(p => !p)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </Field>
+function ForgeStep({
+  sealSymbol, onSelect, onSwitchToLogin,
+}: {
+  sealSymbol: typeof SEAL_SYMBOLS[0];
+  onSelect: (s: typeof SEAL_SYMBOLS[0]) => void;
+  onSwitchToLogin: () => void;
+}) {
+  const [localSelected, setLocalSelected] = useState(sealSymbol);
 
-                <ErrorBanner error={error} />
+  useEffect(() => {
+    onSelect(localSelected);
+  }, [localSelected, onSelect]);
+  return (
+    <div>
+      <StepHeader
+        icon={<Flame size={18} />}
+        step="01"
+        title="Forja tu sello"
+        subtitle="Elige el símbolo que representará tu identidad"
+      />
 
-                <SubmitButton
-                  onClick={handleLogin}
-                  disabled={isLoading || !isValidEmail(email) || password.length < 1}
-                  loading={isLoading}
-                  loadingText="Entrando..."
-                >
-                  Entrar
-                </SubmitButton>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-          className="text-center text-xs text-white/30 mt-5 flex items-center justify-center gap-1.5"
+      {/* Selected preview */}
+      <div className="flex flex-col items-center my-6">
+        <motion.div
+          key={sealSymbol.emoji}
+          initial={{ scale: 0.5, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+          className="relative"
         >
-          <ShieldCheck size={12} />
-          Sesión protegida con cookies HttpOnly
+          <div
+            className="absolute inset-0 rounded-full blur-2xl"
+            style={{ background: sealSymbol.color, opacity: 0.3 }}
+          />
+          <div
+            className="relative w-24 h-24 rounded-full flex items-center justify-center text-5xl"
+            style={{
+              background: `radial-gradient(circle at 30% 30%, ${sealSymbol.color}30, transparent 70%)`,
+              border: `2px solid ${sealSymbol.color}40`,
+              boxShadow: `0 0 32px ${sealSymbol.color}30`,
+            }}
+          >
+            {sealSymbol.emoji}
+          </div>
+        </motion.div>
+        <motion.p
+          key={sealSymbol.name}
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-sm font-medium text-white/70 mt-3"
+        >
+          {sealSymbol.name}
         </motion.p>
+      </div>
+
+      {/* Symbol grid */}
+      <div className="grid grid-cols-4 gap-2.5">
+        {SEAL_SYMBOLS.map((sym, i) => (
+          <motion.button
+            key={sym.emoji}
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.1 + i * 0.04, type: 'spring', stiffness: 260 }}
+            whileHover={{ scale: 1.1, y: -2 }}
+            whileTap={{ scale: 0.92 }}
+            onClick={() => setLocalSelected(sym)}
+            className={`aspect-square rounded-2xl flex items-center justify-center text-2xl transition-all ${
+              sealSymbol.emoji === sym.emoji
+                ? 'border-2 scale-105'
+                : 'border border-white/8 hover:border-white/20'
+            }`}
+            style={{
+              background: sealSymbol.emoji === sym.emoji
+                ? `${sym.color}20`
+                : 'rgba(255,255,255,0.03)',
+              borderColor: sealSymbol.emoji === sym.emoji ? `${sym.color}60` : undefined,
+              boxShadow: sealSymbol.emoji === sym.emoji ? `0 0 20px ${sym.color}25` : undefined,
+            }}
+          >
+            {sym.emoji}
+          </motion.button>
+        ))}
+      </div>
+
+      {/* Login switch */}
+      <div className="mt-6">
+        <p className="text-center text-sm text-white/40">
+          ¿Ya tienes cuenta?{' '}
+          <button
+            onClick={onSwitchToLogin}
+            className="text-fuchsia-300 hover:text-fuchsia-200 font-medium transition-colors underline-offset-2 hover:underline"
+          >
+            Iniciar sesión
+          </button>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ── Step 2: Inscribe — enter your name ──────────────────────── */
+
+function InscribeStep({
+  displayName, setDisplayName, sealSymbol, onBack,
+}: {
+  displayName: string;
+  setDisplayName: (v: string) => void;
+  sealSymbol: typeof SEAL_SYMBOLS[0];
+  onBack: () => void;
+}) {
+  return (
+    <div>
+      <StepHeader
+        icon={<Gem size={18} />}
+        step="02"
+        title="Inscribe tu nombre"
+        subtitle="El nombre que verás en tu sello"
+      />
+
+      <div className="flex items-center gap-3 my-6">
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shrink-0"
+          style={{
+            background: `${sealSymbol.color}20`,
+            border: `1px solid ${sealSymbol.color}40`,
+          }}
+        >
+          {sealSymbol.emoji}
+        </div>
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={displayName}
+            onChange={e => setDisplayName(e.target.value)}
+            placeholder="Tu nombre..."
+            maxLength={24}
+            autoFocus
+            className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3.5 text-white placeholder-white/25 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors text-lg"
+          />
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/20">
+            {displayName.length}/24
+          </span>
+        </div>
+      </div>
+
+      <BackLink onClick={onBack} />
+    </div>
+  );
+}
+
+/* ── Step 3: Bind — enter email ──────────────────────────────── */
+
+function BindStep({
+  email, setEmail, mode, loginPassword, setLoginPassword, showPassword, setShowPassword, onBack,
+}: {
+  email: string;
+  setEmail: (v: string) => void;
+  mode: Mode;
+  loginPassword: string;
+  setLoginPassword: (v: string) => void;
+  showPassword: boolean;
+  setShowPassword: (v: boolean) => void;
+  onBack: () => void;
+}) {
+  return (
+    <div>
+      <StepHeader
+        icon={<Mail size={18} />}
+        step={mode === 'login' ? '—' : '03'}
+        title={mode === 'login' ? 'Tu correo' : 'Vincula tu correo'}
+        subtitle={mode === 'login' ? 'Ingresa con tu cuenta' : 'Para proteger y recuperar tu sello'}
+      />
+
+      <div className="relative my-6">
+        <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25" />
+        <input
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="tu@correo.com"
+          autoComplete="email"
+          autoFocus
+          className="w-full rounded-xl bg-white/5 border border-white/10 pl-12 pr-4 py-3.5 text-white placeholder-white/25 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors text-lg"
+        />
+      </div>
+
+      {mode === 'login' && (
+        <>
+          <div className="relative mb-4">
+            <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25" />
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={loginPassword}
+              onChange={e => setLoginPassword(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              className="w-full rounded-xl bg-white/5 border border-white/10 pl-12 pr-12 py-3.5 text-white placeholder-white/25 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors text-lg tracking-wider"
+            />
+            <button
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/50 transition-colors"
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+          <p className="text-center text-sm text-white/40 mb-2">
+            ¿No tienes cuenta?{' '}
+            <button
+              onClick={onBack}
+              className="text-fuchsia-300 hover:text-fuchsia-200 font-medium transition-colors underline-offset-2 hover:underline"
+            >
+              Crear sello
+            </button>
+          </p>
+        </>
+      )}
+
+      <BackLink onClick={onBack} />
+    </div>
+  );
+}
+
+/* ── Step 4: Seal — set password ────────────────────────────── */
+
+function SealStep({
+  password, setPassword, showPassword, setShowPassword, sealSymbol, onBack,
+}: {
+  password: string;
+  setPassword: (v: string) => void;
+  showPassword: boolean;
+  setShowPassword: (v: boolean) => void;
+  sealSymbol: typeof SEAL_SYMBOLS[0];
+  onBack: () => void;
+}) {
+  const strength = Math.min(4, Math.floor(password.length / 2));
+  const strengthLabels = ['', 'Débil', 'Regular', 'Buena', 'Fuerte'];
+  const strengthColors = ['', '#EF4444', '#F59E0B', '#22D3EE', '#34D399'];
+
+  return (
+    <div>
+      <StepHeader
+        icon={<Shield size={18} />}
+        step="04"
+        title="Sella tu identidad"
+        subtitle="Mínimo 6 caracteres para proteger tu sello"
+      />
+
+      <div className="relative my-6">
+        <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/25" />
+        <input
+          type={showPassword ? 'text' : 'password'}
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="••••••••"
+          autoComplete="new-password"
+          autoFocus
+          className="w-full rounded-xl bg-white/5 border border-white/10 pl-12 pr-12 py-3.5 text-white placeholder-white/25 outline-none focus:border-fuchsia-400/50 focus:bg-white/8 transition-colors text-lg tracking-wider"
+        />
+        <button
+          onClick={() => setShowPassword(!showPassword)}
+          className="absolute right-4 top-1/2 -translate-y-1/2 text-white/25 hover:text-white/50 transition-colors"
+        >
+          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+        </button>
+      </div>
+
+      {/* Password strength meter */}
+      <AnimatePresence>
+        {password.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-4"
+          >
+            <div className="flex gap-1.5 mb-1.5">
+              {[1, 2, 3, 4].map(i => (
+                <motion.div
+                  key={i}
+                  className="flex-1 h-1.5 rounded-full"
+                  animate={{
+                    backgroundColor: i <= strength ? strengthColors[strength] : 'rgba(255,255,255,0.08)',
+                  }}
+                />
+              ))}
+            </div>
+            <p className="text-xs text-white/40">{strengthLabels[strength]}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <BackLink onClick={onBack} />
+    </div>
+  );
+}
+
+/* ── Complete view ───────────────────────────────────────────── */
+
+function CompleteView({ symbol, name }: { symbol: typeof SEAL_SYMBOLS[0]; name: string }) {
+  return (
+    <div className="flex flex-col items-center py-8 text-center">
+      <motion.div
+        initial={{ scale: 0, rotate: -180 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={{ type: 'spring', stiffness: 200, damping: 14 }}
+        className="relative mb-4"
+      >
+        <div
+          className="absolute inset-0 rounded-full blur-3xl"
+          style={{ background: symbol.color, opacity: 0.4 }}
+        />
+        <div
+          className="relative w-28 h-28 rounded-full flex items-center justify-center text-6xl"
+          style={{
+            background: `radial-gradient(circle at 30% 30%, ${symbol.color}40, transparent 70%)`,
+            border: `2px solid ${symbol.color}50`,
+            boxShadow: `0 0 48px ${symbol.color}40`,
+          }}
+        >
+          {symbol.emoji}
+        </div>
+      </motion.div>
+      <motion.h2
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        className="text-xl font-bold text-white"
+      >
+        Sello forjado
+      </motion.h2>
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5 }}
+        className="text-sm text-white/50 mt-1"
+      >
+        Bienvenido, {name || 'viajero'}
+      </motion.p>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.7 }}
+        className="mt-4 flex items-center gap-2 text-fuchsia-300"
+      >
+        <Check size={16} />
+        <span className="text-sm font-medium">Entrando...</span>
       </motion.div>
     </div>
   );
 }
 
-/* ── Sub-components ──────────────────────────────────────────── */
+/* ── Shared sub-components ───────────────────────────────────── */
 
-function WelcomeView({ onRegister, onLogin }: { onRegister: () => void; onLogin: () => void }) {
-  const features = [
-    { icon: '💬', text: 'Chat con IA multimodal' },
-    { icon: '🔍', text: 'Búsqueda en tiempo real' },
-    { icon: '🎨', text: 'Generación de imágenes' },
-    { icon: '🔐', text: 'Sesión segura y persistente' },
-  ];
-
+function StepHeader({ icon, step, title, subtitle }: {
+  icon: React.ReactNode; step: string; title: string; subtitle: string;
+}) {
   return (
-    <motion.div
-      key="welcome"
-      initial={{ opacity: 0, x: -30 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 30 }}
-      transition={{ duration: 0.3 }}
-    >
-      <h2 className="text-lg font-semibold text-white mb-2 text-center">Bienvenido a Yosseling</h2>
-      <p className="text-sm text-white/50 mb-5 leading-relaxed text-center">
-        Crea tu cuenta con <span className="text-fuchsia-300 font-medium">correo y contraseña</span> —
-        seguro, rápido y listo para producción.
-      </p>
-
-      {/* Feature list */}
-      <div className="grid grid-cols-2 gap-2.5 mb-6">
-        {features.map((f, i) => (
-          <motion.div
-            key={f.text}
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 + i * 0.08, type: 'spring', stiffness: 200 }}
-            className="flex items-center gap-2 p-2.5 rounded-xl"
-            style={{
-              background: 'rgba(168, 85, 247, 0.06)',
-              border: '1px solid rgba(168, 85, 247, 0.1)',
-            }}
-          >
-            <span className="text-lg">{f.icon}</span>
-            <span className="text-xs text-white/70 font-medium">{f.text}</span>
-          </motion.div>
-        ))}
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-fuchsia-400/80">{icon}</span>
+        <span className="text-xs font-mono text-white/30 tracking-widest">{step}</span>
       </div>
-
-      <div className="space-y-3">
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={onRegister}
-          className="w-full rounded-xl bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3.5 font-semibold text-white shadow-lg shadow-fuchsia-500/25 hover:shadow-fuchsia-500/40 transition-all flex items-center justify-center gap-2"
-        >
-          Crear cuenta
-          <ArrowRight size={16} />
-        </motion.button>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={onLogin}
-          className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3.5 font-semibold text-white/80 hover:bg-white/10 transition-all"
-        >
-          Ya tengo cuenta
-        </motion.button>
-      </div>
-    </motion.div>
-  );
-}
-
-function Field({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="mb-4">
-      <label className="block text-xs font-medium text-white/60 mb-2">{label}</label>
-      <div className="relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30">{icon}</span>
-        {children}
-      </div>
+      <h2 className="text-lg sm:text-xl font-bold text-white">{title}</h2>
+      <p className="text-sm text-white/45 mt-0.5">{subtitle}</p>
     </div>
   );
 }
 
-function ErrorBanner({ error }: { error: string | null }) {
-  if (!error) return null;
+function BackLink({ onClick }: { onClick: () => void }) {
   return (
-    <motion.p
-      initial={{ opacity: 0, y: -10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="text-sm text-red-400 mb-4 text-center bg-red-500/10 rounded-lg py-2 px-3"
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1 text-sm text-white/35 hover:text-white/70 transition-colors mt-2"
     >
-      {error}
-    </motion.p>
+      <ArrowLeft size={14} />
+      Atrás
+    </button>
   );
 }
 
-function SubmitButton({
-  onClick,
-  disabled,
-  loading,
-  loadingText,
-  children,
-}: {
-  onClick: () => void;
-  disabled: boolean;
-  loading: boolean;
-  loadingText: string;
-  children: React.ReactNode;
+function ActionButton({ onClick, disabled, loading, step, mode }: {
+  onClick: () => void; disabled: boolean; loading: boolean; step: Step; mode: Mode;
 }) {
+  const label = mode === 'login'
+    ? 'Entrar'
+    : step === 'seal'
+    ? 'Forjar sello'
+    : 'Continuar';
+
   return (
     <motion.button
       whileHover={disabled ? undefined : { scale: 1.02 }}
       whileTap={disabled ? undefined : { scale: 0.98 }}
       onClick={onClick}
       disabled={disabled}
-      className="w-full rounded-xl bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3.5 font-semibold text-white shadow-lg shadow-fuchsia-500/25 hover:shadow-fuchsia-500/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+      className="w-full rounded-xl bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3.5 font-semibold text-white shadow-lg shadow-fuchsia-500/25 hover:shadow-fuchsia-500/40 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
     >
       {loading ? (
         <>
           <motion.span
             animate={{ rotate: 360 }}
             transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
-            className="inline-block"
           >
             <Sparkles size={16} />
           </motion.span>
-          {loadingText}
+          Forjando...
         </>
       ) : (
-        children
+        <>
+          {label}
+          <ArrowRight size={16} />
+        </>
       )}
     </motion.button>
   );
 }
 
-function BackButton({ onClick }: { onClick: () => void }) {
+/* ── Progress ring ───────────────────────────────────────────── */
+
+function ProgressRing({ step, total }: { step: number; total: number }) {
+  const pct = ((step + 1) / total) * 100;
+  const radius = 22;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (pct / 100) * circumference;
+
   return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-1 text-sm text-white/40 hover:text-white/70 mb-4 transition-colors"
-    >
-      <ArrowLeft size={14} />
-      Volver
-    </button>
+    <div className="relative w-14 h-14">
+      <svg className="w-14 h-14 -rotate-90" viewBox="0 0 56 56">
+        <circle cx="28" cy="28" r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
+        <motion.circle
+          cx="28" cy="28" r={radius}
+          fill="none"
+          stroke="url(#ringGrad)"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+        />
+        <defs>
+          <linearGradient id="ringGrad" x1="0" y1="0" x2="56" y2="56">
+            <stop offset="0%" stopColor="#D946EF" />
+            <stop offset="100%" stopColor="#A855F7" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-xs font-bold text-white/80">{step + 1}/{total}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ── Animated glow that shifts color per step ───────────────── */
+
+function StepGlow({ step }: { step: Step }) {
+  const colorMap: Record<Step, string> = {
+    forge: '#F59E0B',
+    inscribe: '#A855F7',
+    bind: '#22D3EE',
+    seal: '#34D399',
+    complete: '#D946EF',
+  };
+  const color = colorMap[step];
+
+  return (
+    <motion.div
+      key={step}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.5 }}
+      className="absolute -top-20 left-1/2 -translate-x-1/2 w-72 h-72 rounded-full blur-3xl pointer-events-none"
+      style={{ background: color, opacity: 0.08 }}
+    />
   );
 }
