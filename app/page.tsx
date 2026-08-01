@@ -27,7 +27,7 @@ function SidebarOverlayPanel() {
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
       transition={{ duration: 0.25 }}
-      className="absolute left-[280px] top-0 bottom-0 w-[320px] z-30 overflow-hidden flex flex-col"
+      className="absolute left-0 sm:left-[280px] top-0 bottom-0 w-full sm:w-[320px] z-30 overflow-hidden flex flex-col"
       style={{
         background: 'rgba(18, 9, 31, 0.85)',
         backdropFilter: 'blur(28px) saturate(1.5)',
@@ -185,7 +185,7 @@ export default function Home() {
         </div>
 
         {/* ── RIGHT: Intelligent Panel ── */}
-        <div className="hidden md:flex h-full shrink-0">
+        <div className="hidden lg:flex h-full shrink-0">
           <ToolsPanel />
         </div>
       </main>
