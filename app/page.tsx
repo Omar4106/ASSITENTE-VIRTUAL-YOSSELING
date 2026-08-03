@@ -52,27 +52,15 @@ export default function Home() {
     init();
     initStore();
 
-    // Listen for auth state changes (login, logout, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      (async () => {
-        if (session) {
-          const { data } = await supabase
-            .from('user_seals')
-            .select('display_name, avatar_emoji')
-            .eq('user_id', session.user.id)
-            .maybeSingle();
-          useAuthStore.setState({
-            user: {
-              id: session.user.id,
-              email: session.user.email ?? '',
-              displayName: data?.display_name ?? session.user.email?.split('@')[0] ?? '',
-              avatarEmoji: data?.avatar_emoji ?? '🌟',
-            },
-          });
-        } else {
-          useAuthStore.setState({ user: null });
-        }
-      })();
+    // Listen for auth state changes (login, logout, token refresh).
+    // Only handle sign-out here — sign-in is handled by the auth store's
+    // register/login functions which create the profile before setting user.
+    // This prevents a race where onAuthStateChange fires before the profile
+    // row exists, overwriting valid user state with a fallback.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        useAuthStore.setState({ user: null });
+      }
     });
 
     return () => { subscription.unsubscribe(); };
