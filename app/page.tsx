@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
@@ -57,7 +59,7 @@ export default function Home() {
     // register/login functions which create the profile before setting user.
     // This prevents a race where onAuthStateChange fires before the profile
     // row exists, overwriting valid user state with a fallback.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string, session: { user: { id: string; email?: string } } | null) => {
       if (event === 'SIGNED_OUT' || !session) {
         useAuthStore.setState({ user: null });
       }

@@ -11,7 +11,7 @@ export async function GET() {
     const val = getEnvVar(key);
     status[key] = Boolean(val);
     if (!val) console.warn(`[Yosseling] Missing env var: ${key}`);
-    else console.log(`[Yosseling] Found env var: ${key} = ${val.slice(0, 8)}...`);
+    else console.log(`[Yosseling] Found env var: ${key}`);
   }
   return NextResponse.json({
     status,
