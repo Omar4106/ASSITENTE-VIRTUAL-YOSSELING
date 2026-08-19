@@ -5,8 +5,6 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
-import { useAuthStore } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ToolsPanel } from '@/components/tools/ToolsPanel';
@@ -48,25 +46,10 @@ function SidebarOverlayPanel() {
 
 export default function Home() {
   const { initStore, sidebarOpen, sidebarView, createNewChat } = useAppStore();
-  const { user, isReady, init } = useAuthStore();
 
   useEffect(() => {
-    init();
     initStore();
-
-    // Listen for auth state changes (login, logout, token refresh).
-    // Only handle sign-out here — sign-in is handled by the auth store's
-    // register/login functions which create the profile before setting user.
-    // This prevents a race where onAuthStateChange fires before the profile
-    // row exists, overwriting valid user state with a fallback.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string, session: { user: { id: string; email?: string } } | null) => {
-      if (event === 'SIGNED_OUT' || !session) {
-        useAuthStore.setState({ user: null });
-      }
-    });
-
-    return () => { subscription.unsubscribe(); };
-  }, [init, initStore]);
+  }, [initStore]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -79,42 +62,6 @@ export default function Home() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
-
-  if (!isReady) {
-    return (
-      <>
-        <CinematicBackground />
-        <div className="relative flex h-dvh items-center justify-center" style={{ zIndex: 1 }}>
-          <motion.div
-            animate={{ scale: [1, 1.1, 1] }}
-            transition={{ repeat: Infinity, duration: 1.5 }}
-            className="text-5xl"
-          >
-            🔐
-          </motion.div>
-        </div>
-      </>
-    );
-  }
-
-  // Middleware redirects unauthenticated users to /login, but this is a
-  // safety net for the brief window before the redirect completes.
-  if (!user) {
-    return (
-      <>
-        <CinematicBackground />
-        <div className="relative flex h-dvh items-center justify-center" style={{ zIndex: 1 }}>
-          <motion.div
-            animate={{ scale: [1, 1.1, 1] }}
-            transition={{ repeat: Infinity, duration: 1.5 }}
-            className="text-5xl"
-          >
-            🔐
-          </motion.div>
-        </div>
-      </>
-    );
-  }
 
   return (
     <>
