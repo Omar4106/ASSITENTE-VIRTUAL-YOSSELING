@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Check, RefreshCw, CreditCard as Edit2, Trash2, Volume2, ThumbsUp, ThumbsDown, MoveHorizontal as MoreHorizontal, User, Download, FileText, Music } from 'lucide-react';
+import { Copy, Check, RefreshCw, CreditCard as Edit2, Trash2, Volume2, ThumbsUp, ThumbsDown, MoveHorizontal as MoreHorizontal, User } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { PROVIDERS } from '@/lib/ai-providers';
 import type { Message } from '@/types';
@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 interface Props {
   message: Message;
   chatId: string;
-  onSpeak?: (text: string, messageId?: string) => void;
+  onSpeak?: (text: string) => void;
 }
 
 function CodeBlock({ language, children }: { language: string; children: string }) {
@@ -59,7 +59,7 @@ function CodeBlock({ language, children }: { language: string; children: string 
 }
 
 export function MessageBubble({ message, chatId, onSpeak }: Props) {
-  const { deleteMessage, regenerateResponse, editMessage, isSpeaking, speakingMessageId } = useAppStore();
+  const { deleteMessage, regenerateResponse, editMessage } = useAppStore();
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -85,50 +85,30 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+      transition={{ duration: 0.25 }}
       className={cn('group flex gap-3 px-4 py-3', isUser ? 'justify-end' : 'justify-start')}
     >
       {!isUser && (
-        <div className="shrink-0 relative">
-          <div className="w-9 h-9 rounded-full overflow-hidden border border-purple-400/30 glow-purple">
-            <Image
-              src="/assets/images/logo_de_yosseling_sin_fondo_.png"
-              alt="Yosseling"
-              width={36}
-              height={36}
-              className="object-cover"
-            />
-          </div>
-          {message.isStreaming && (
-            <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-[#1A1030] animate-pulse" />
-          )}
-          {/* Voice waves */}
-          {isSpeaking && speakingMessageId === message.id && !message.isStreaming && (
-            <div className="absolute -bottom-1 -right-1 flex items-end gap-0.5 bg-[#1A1030] rounded-full px-1 py-0.5 border border-purple-400/30">
-              {[0, 1, 2, 3].map(i => (
-                <div
-                  key={i}
-                  className="voice-bar w-0.5 rounded-full bg-purple-400"
-                  style={{ height: '8px', animationDelay: `${i * 0.1}s` }}
-                />
-              ))}
-            </div>
-          )}
+        <div className="shrink-0 w-8 h-8 rounded-full overflow-hidden border border-purple-500/30 glow-purple">
+          <Image
+            src="/assets/images/logo_de_yosseling_sin_fondo_.png"
+            alt="Yosseling"
+            width={32}
+            height={32}
+            className="object-cover"
+          />
         </div>
       )}
 
       <div className={cn('flex flex-col gap-1 max-w-[80%]', isUser && 'items-end')}>
-        {/* Provider badge + name */}
-        {!isUser && (
-          <div className="flex items-center gap-2 mb-1 px-1">
-            <span className="text-xs font-semibold text-white">Yosseling</span>
-            {providerInfo && (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md" style={{ color: providerInfo.color, background: providerInfo.color + '15' }}>
-                {providerInfo.name}
-              </span>
-            )}
+        {/* Provider badge */}
+        {!isUser && providerInfo && (
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-[10px] font-medium" style={{ color: providerInfo.color }}>
+              {providerInfo.name}
+            </span>
             {message.model && (
-              <span className="text-[10px] text-[#BDB7CC]/50">· {message.model}</span>
+              <span className="text-[10px] text-[#B3B3B3]">· {message.model}</span>
             )}
           </div>
         )}
@@ -142,17 +122,17 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
               : 'text-white/90 rounded-tl-sm'
           )}
           style={isUser ? {
-            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.85) 0%, rgba(255, 95, 215, 0.75) 100%)',
-            backdropFilter: 'blur(20px) saturate(1.5)',
-            WebkitBackdropFilter: 'blur(20px) saturate(1.5)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
-            boxShadow: '0 4px 24px rgba(168, 85, 247, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
+            background: 'linear-gradient(135deg, rgba(124,58,237,0.75) 0%, rgba(79,70,229,0.7) 100%)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid rgba(168,85,247,0.3)',
+            boxShadow: '0 4px 20px rgba(124,58,237,0.2), inset 0 1px 0 rgba(255,255,255,0.1)',
           } : {
-            background: 'rgba(26, 16, 48, 0.55)',
-            backdropFilter: 'blur(24px) saturate(1.4)',
-            WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            boxShadow: '0 4px 24px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 -1px 0 rgba(168, 85, 247, 0.04)',
+            background: 'rgba(12,9,28,0.72)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(124,58,237,0.12)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04)',
           }}
         >
           {isEditing ? (
@@ -222,68 +202,13 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
 
           {/* Attachments */}
           {message.attachments && message.attachments.length > 0 && (
-            <div className="mt-3 space-y-2">
-              {message.attachments.map(file => {
-                const isImage = file.type.startsWith('image/') && file.dataUrl;
-                if (isImage) {
-                  return (
-                    <div key={file.id} className="relative group/img rounded-xl overflow-hidden border border-white/10">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={file.dataUrl}
-                        alt={file.name}
-                        className="w-full max-w-md mx-auto rounded-xl"
-                        style={{ maxHeight: '400px', objectFit: 'contain' }}
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity flex items-end justify-end gap-1.5 p-2">
-                        <a
-                          href={file.dataUrl}
-                          download={file.name}
-                          className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 transition-colors"
-                          title="Descargar"
-                        >
-                          <Download size={14} />
-                        </a>
-                        {!isUser && (
-                          <button
-                            onClick={() => regenerateResponse(chatId, message.id)}
-                            className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 transition-colors"
-                            title="Regenerar"
-                          >
-                            <RefreshCw size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                }
-                if (file.type === 'audio' && file.dataUrl) {
-                  return (
-                    <div key={file.id} className="flex items-center gap-2 bg-white/10 rounded-lg p-2 max-w-md">
-                      <audio controls src={file.dataUrl} className="h-8 w-full max-w-[220px]" />
-                      <a
-                        href={file.dataUrl}
-                        download={file.name}
-                        className="p-1.5 rounded-lg bg-black/30 text-white hover:bg-black/50 transition-colors shrink-0"
-                        title="Descargar"
-                      >
-                        <Download size={14} />
-                      </a>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={file.id} className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2 text-xs max-w-md">
-                    {file.type === 'pdf' ? (
-                      <FileText size={14} className="text-red-400 shrink-0" />
-                    ) : (
-                      <FileText size={14} className="text-purple-300 shrink-0" />
-                    )}
-                    <span className="text-white/80 truncate flex-1">{file.name}</span>
-                    <span className="text-[10px] text-white/40 shrink-0">{(file.size / 1024).toFixed(0)}KB</span>
-                  </div>
-                );
-              })}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {message.attachments.map(file => (
+                <div key={file.id} className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2 py-1.5 text-xs">
+                  <span className="text-purple-300">📎</span>
+                  <span className="text-white/80 truncate max-w-[120px]">{file.name}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -301,7 +226,7 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
 
           <div className="flex items-center gap-0.5 ml-1">
             <ActionBtn icon={copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />} label="Copiar" onClick={handleCopy} />
-            {!isUser && onSpeak && <ActionBtn icon={<Volume2 size={12} />} label="Leer" onClick={() => onSpeak(message.content, message.id)} />}
+            {!isUser && onSpeak && <ActionBtn icon={<Volume2 size={12} />} label="Leer" onClick={() => onSpeak(message.content)} />}
             {!isUser && <ActionBtn icon={<RefreshCw size={12} />} label="Regenerar" onClick={() => regenerateResponse(chatId, message.id)} />}
             <ActionBtn icon={<Edit2 size={12} />} label="Editar" onClick={() => setIsEditing(true)} />
             <ActionBtn icon={<Trash2 size={12} />} label="Eliminar" onClick={() => deleteMessage(chatId, message.id)} danger />
@@ -310,10 +235,8 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
       </div>
 
       {isUser && (
-        <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center border border-white/15 glow-pink"
-          style={{ background: 'linear-gradient(135deg, #FF5FD7 0%, #A855F7 100%)' }}
-        >
-          <User size={15} className="text-white" />
+        <div className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center border border-white/10">
+          <User size={14} className="text-white" />
         </div>
       )}
     </motion.div>

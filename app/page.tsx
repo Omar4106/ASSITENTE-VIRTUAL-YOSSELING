@@ -1,10 +1,10 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ToolsPanel } from '@/components/tools/ToolsPanel';
@@ -14,6 +14,7 @@ import { MemoryPanel } from '@/components/panels/MemoryPanel';
 import { SettingsPanel } from '@/components/panels/SettingsPanel';
 import { HelpPanel } from '@/components/panels/HelpPanel';
 import { CinematicBackground } from '@/components/background/CinematicBackground';
+import { cn } from '@/lib/utils';
 
 function SidebarOverlayPanel() {
   const { sidebarView, setSidebarView } = useAppStore();
@@ -27,14 +28,13 @@ function SidebarOverlayPanel() {
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
       transition={{ duration: 0.25 }}
-      className="absolute left-0 sm:left-[280px] top-0 bottom-0 w-full sm:w-[320px] z-30 overflow-hidden flex flex-col"
+      className="absolute left-[260px] top-0 bottom-0 w-[320px] z-30 overflow-hidden flex flex-col shadow-2xl"
       style={{
-        background: 'rgba(18, 9, 31, 0.85)',
-        backdropFilter: 'blur(28px) saturate(1.5)',
-        WebkitBackdropFilter: 'blur(28px) saturate(1.5)',
-        borderRight: '1px solid rgba(168, 85, 247, 0.12)',
-        borderLeft: '1px solid rgba(255, 255, 255, 0.04)',
-        boxShadow: '8px 0 32px rgba(0, 0, 0, 0.3)',
+        background: 'rgba(10,8,20,0.82)',
+        backdropFilter: 'blur(28px)',
+        WebkitBackdropFilter: 'blur(28px)',
+        borderRight: '1px solid rgba(124,58,237,0.15)',
+        borderLeft: '1px solid rgba(255,255,255,0.04)',
       }}
     >
       {sidebarView === 'memory' && <MemoryPanel />}
@@ -45,11 +45,19 @@ function SidebarOverlayPanel() {
 }
 
 export default function Home() {
-  const { initStore, sidebarOpen, sidebarView, createNewChat } = useAppStore();
+  const { initStore, sidebarOpen, createNewChat } = useAppStore();
+  const { user, loading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
-    initStore();
-  }, [initStore]);
+    if (!loading && !user) {
+      router.replace('/login');
+    }
+  }, [loading, user, router]);
+
+  useEffect(() => {
+    if (user) initStore();
+  }, [initStore, user]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -63,67 +71,97 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
+  if (loading || !user) {
+    return (
+      <>
+        <CinematicBackground />
+        <div className="relative flex h-dvh items-center justify-center" style={{ zIndex: 1 }}>
+          <div className="w-10 h-10 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
+      {/* Cinematic background — fixed, behind everything */}
       <CinematicBackground />
 
-      <main className="relative flex h-dvh w-full overflow-hidden" style={{ zIndex: 1 }}>
-        {/* ── LEFT: Sidebar ── */}
+      {/* App shell — sits above background, transparent panels */}
+      <main className="relative flex h-dvh w-full overflow-hidden" style={{ zIndex: 1, background: 'transparent' }}>
+        {/* Sidebar */}
         <AnimatePresence mode="wait">
           {sidebarOpen && (
             <motion.div
               key="sidebar"
-              initial={{ x: -280, opacity: 0 }}
+              initial={{ x: -260, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -280, opacity: 0 }}
+              exit={{ x: -260, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
               className="relative hidden md:flex h-full shrink-0"
             >
-              <Sidebar />
+              <div
+                className="h-full"
+                style={{
+                  background: 'rgba(8,6,18,0.78)',
+                  backdropFilter: 'blur(24px)',
+                  WebkitBackdropFilter: 'blur(24px)',
+                  borderRight: '1px solid rgba(124,58,237,0.12)',
+                }}
+              >
+                <Sidebar />
+              </div>
               <AnimatePresence>
-                <SidebarOverlayPanel key={sidebarView} />
+                <SidebarOverlayPanel />
               </AnimatePresence>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* ── CENTER: Chat ── */}
+        {/* Center content */}
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-          {/* Header */}
+          {/* Header with glass effect */}
           <div
-            className="shrink-0"
             style={{
-              background: 'rgba(18, 9, 31, 0.65)',
-              backdropFilter: 'blur(24px) saturate(1.5)',
-              WebkitBackdropFilter: 'blur(24px) saturate(1.5)',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+              background: 'rgba(8,6,18,0.72)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              borderBottom: '1px solid rgba(124,58,237,0.1)',
             }}
           >
             <Header />
           </div>
 
-          {/* Chat area */}
-          <div className="flex-1 min-h-0 overflow-hidden relative">
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            {/* Chat area — semi-transparent glass */}
+            <div className="flex-1 min-w-0 overflow-hidden relative">
+              <div
+                className="absolute inset-0"
+                style={{
+                  background: 'rgba(6,4,16,0.55)',
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
+                }}
+              />
+              <div className="relative h-full">
+                <ChatArea />
+              </div>
+            </div>
+
+            {/* Tools panel with glass effect */}
             <div
-              className="absolute inset-0"
               style={{
-                background: 'rgba(18, 9, 31, 0.35)',
-                backdropFilter: 'blur(4px)',
-                WebkitBackdropFilter: 'blur(4px)',
+                background: 'rgba(8,6,18,0.78)',
+                backdropFilter: 'blur(24px)',
+                WebkitBackdropFilter: 'blur(24px)',
+                borderLeft: '1px solid rgba(124,58,237,0.12)',
               }}
-            />
-            <div className="relative h-full">
-              <ChatArea />
+            >
+              <ToolsPanel />
             </div>
           </div>
 
-          {/* Mobile bottom nav */}
           <MobileNav />
-        </div>
-
-        {/* ── RIGHT: Intelligent Panel ── */}
-        <div className="hidden lg:flex h-full shrink-0">
-          <ToolsPanel />
         </div>
       </main>
     </>

@@ -7,13 +7,6 @@ import type {
   SidebarView, RightPanelView, AttachedFile, AICenterData,
   MemoryCategory, MemoryImportance, MemoryType,
 } from '@/types';
-import type { ImageStyle, ImageSize, ImageQuality } from '@/src/services/images/types';
-
-export interface ImageOptions {
-  style?: ImageStyle;
-  size?: ImageSize;
-  quality?: ImageQuality;
-}
 import {
   saveChat, getAllChats, deleteChat as dbDeleteChat, clearAllChats as dbClearChats,
   getAllMemory, saveMemoryItem, deleteMemoryItem as dbDeleteMemory,
@@ -41,7 +34,6 @@ interface AppState {
   memory: MemoryItem[];
   isSpeaking: boolean;
   isListening: boolean;
-  speakingMessageId: string | null;
   pendingFiles: AttachedFile[];
   searchQuery: string;
   aiCenterData: AICenterData | null;
@@ -54,7 +46,7 @@ interface AppState {
   deleteChat: (id: string) => Promise<void>;
   clearAllChats: () => Promise<void>;
   importChats: (chats: Chat[]) => Promise<void>;
-  sendMessage: (content: string, files?: AttachedFile[], imageOptions?: ImageOptions) => Promise<void>;
+  sendMessage: (content: string, files?: AttachedFile[]) => Promise<void>;
   stopStreaming: () => void;
   editMessage: (chatId: string, messageId: string, content: string) => Promise<void>;
   deleteMessage: (chatId: string, messageId: string) => Promise<void>;
@@ -81,7 +73,7 @@ interface AppState {
   clearMemoryIndicator: () => void;
 
   // Voice / Files
-  setIsSpeaking: (v: boolean, messageId?: string | null) => void;
+  setIsSpeaking: (v: boolean) => void;
   setIsListening: (v: boolean) => void;
   addPendingFile: (file: AttachedFile) => void;
   removePendingFile: (id: string) => void;
@@ -90,14 +82,6 @@ interface AppState {
 }
 
 const { id: defaultModelId, provider: defaultProvider } = getDefaultModel();
-
-function applyTheme(theme: 'dark' | 'light') {
-  if (typeof document === 'undefined') return;
-  const el = document.documentElement;
-  el.classList.remove('dark', 'light');
-  el.classList.add(theme);
-  el.setAttribute('data-theme', theme);
-}
 
 export const useAppStore = create<AppState>()(
   subscribeWithSelector((set, get) => ({
@@ -115,7 +99,6 @@ export const useAppStore = create<AppState>()(
     memory: [],
     isSpeaking: false,
     isListening: false,
-    speakingMessageId: null,
     pendingFiles: [],
     searchQuery: '',
     aiCenterData: null,
@@ -131,7 +114,6 @@ export const useAppStore = create<AppState>()(
         selectedModel: settings.defaultModel,
         selectedProvider: settings.defaultProvider,
       });
-      applyTheme(settings.theme);
     },
 
     createNewChat: () => {
@@ -171,7 +153,7 @@ export const useAppStore = create<AppState>()(
       set(s => ({ chats: [...toAdd, ...s.chats].sort((a, b) => b.updatedAt - a.updatedAt) }));
     },
 
-    sendMessage: async (content, files, imageOptions) => {
+    sendMessage: async (content, files) => {
       const state = get();
       let chat = state.chats.find(c => c.id === state.activeChatId) ?? null;
       let chatId = state.activeChatId;
@@ -214,7 +196,7 @@ export const useAppStore = create<AppState>()(
         ...chat,
         messages: updatedMessages,
         updatedAt: Date.now(),
-        title: (chat.messages?.length ?? 0) === 0 ? (content.slice(0, 40) || 'Nuevo Chat') : chat.title,
+        title: chat.messages.length === 0 ? (content.slice(0, 40) || 'Nuevo Chat') : chat.title,
       };
 
       set(s => ({
@@ -245,9 +227,9 @@ export const useAppStore = create<AppState>()(
           .filter(m => !(m.role === 'assistant' && m.isStreaming))
           .map(m => ({ role: m.role, content: m.content }));
 
-        // Build the payload — include attachment data if files are attached
-        const hasAttachments = files?.some(f => f.dataUrl || f.content);
-        const messagePayload = hasAttachments
+        // Build the payload — include image data if files are attached
+        const hasImages = files?.some(f => f.type.startsWith('image/') && f.dataUrl);
+        const messagePayload = hasImages
           ? chatMsgs.map((m, i) => {
               if (i === chatMsgs.length - 1 && m.role === 'user' && files?.length) {
                 return {
@@ -279,22 +261,6 @@ export const useAppStore = create<AppState>()(
         });
 
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        // ── Image redirect: the Chat Router detected an image intent and
-        // delegated to the Image Router. We call /api/images directly and
-        // render the result as an image attachment on the assistant message.
-        const contentType = response.headers.get('Content-Type') ?? '';
-        if (contentType.includes('application/json')) {
-          const data = await response.json() as { redirect?: string; action?: string; prompt?: string; provider?: string | null };
-          if (data.redirect === '/api/images' && data.action) {
-            await handleImageRedirect({
-              action: data.action,
-              prompt: data.prompt ?? '',
-              provider: data.provider ?? null,
-            }, chatId!, assistantMsg.id, files, startTime, imageOptions);
-            return;
-          }
-        }
 
         const usedProvider = (response.headers.get('X-Provider') ?? state.selectedProvider) as Provider;
         const usedModel = response.headers.get('X-Model') ?? state.selectedModel;
@@ -451,7 +417,7 @@ export const useAppStore = create<AppState>()(
       }
       if (lastUserIdx < 0) return;
       const lastUser = chat.messages[lastUserIdx];
-      set(s => ({ chats: s.chats.map(c => c.id === chatId ? { ...c, messages: c.messages.slice(0, lastUserIdx + 1) } : c), activeChatId: chatId }));
+      set(s => ({ chats: s.chats.map(c => c.id === chatId ? { ...c, messages: c.messages.slice(0, lastUserIdx) } : c), activeChatId: chatId }));
       await get().sendMessage(lastUser.content, lastUser.attachments);
     },
 
@@ -481,7 +447,6 @@ export const useAppStore = create<AppState>()(
       const next = { ...get().settings, ...partial };
       set({ settings: next });
       saveSettings(next);
-      if (partial.theme) applyTheme(next.theme);
     },
 
     loadMemory: async () => { set({ memory: await getAllMemory() }); },
@@ -572,7 +537,7 @@ export const useAppStore = create<AppState>()(
     },
 
     clearMemoryIndicator: () => set({ memoryIndicator: null }),
-    setIsSpeaking: (v, messageId = null) => set({ isSpeaking: v, speakingMessageId: v ? messageId : null }),
+    setIsSpeaking: (v) => set({ isSpeaking: v }),
     setIsListening: (v) => set({ isListening: v }),
     addPendingFile: (file) => set(s => ({ pendingFiles: [...s.pendingFiles, file] })),
     removePendingFile: (id) => set(s => ({ pendingFiles: s.pendingFiles.filter(f => f.id !== id) })),
@@ -580,119 +545,6 @@ export const useAppStore = create<AppState>()(
     setSearchQuery: (q) => set({ searchQuery: q }),
   }))
 );
-
-// ── Image redirect handler ──────────────────────────────────────────────────
-// When the Chat Router detects an image intent, it returns a JSON redirect
-// instead of a stream. This function calls /api/images and renders the result
-// as an image attachment on the assistant message.
-async function handleImageRedirect(
-  redirect: { action: string; prompt: string; provider?: string | null },
-  chatId: string,
-  assistantMsgId: string,
-  userFiles: AttachedFile[] | undefined,
-  startTime: number,
-  imageOptions?: ImageOptions,
-) {
-  const updateAssistant = (updates: Partial<Message>) => {
-    useAppStore.setState(s => ({
-      chats: s.chats.map(c => {
-        if (c.id !== chatId) return c;
-        return {
-          ...c,
-          messages: c.messages.map(m =>
-            m.id === assistantMsgId ? { ...m, ...updates } as Message : m
-          ),
-        };
-      }),
-    }));
-  };
-
-  try {
-    // For edit/analyze we need the first attached image's base64.
-    const attachedImage = userFiles?.find(f => f.type.startsWith('image/') && f.dataUrl);
-    const imageB64 = attachedImage?.dataUrl?.split(',')[1] ?? '';
-    const mimeType = attachedImage?.dataUrl?.match(/data:([^;]+)/)?.[1] ?? 'image/png';
-
-    const res = await fetch('/api/images', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: redirect.action,
-        prompt: redirect.prompt,
-        imageB64: imageB64 || undefined,
-        mimeType,
-        style: imageOptions?.style,
-        size: imageOptions?.size,
-        quality: imageOptions?.quality,
-      }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      updateAssistant({
-        content: `No pude procesar la imagen: ${data.error ?? res.statusText}`,
-        isStreaming: false,
-        responseTime: Date.now() - startTime,
-      });
-      return;
-    }
-
-    if (redirect.action === 'analyze') {
-      updateAssistant({
-        content: data.analysis ?? 'No se pudo analizar la imagen.',
-        isStreaming: false,
-        responseTime: Date.now() - startTime,
-        provider: data.provider ?? 'gemini',
-      });
-      return;
-    }
-
-    // generate / edit → attach the image as a data URL
-    const b64 = data.image?.b64;
-    const imgMime = data.image?.mimeType ?? 'image/png';
-    if (!b64) {
-      updateAssistant({
-        content: 'El proveedor no devolvió ninguna imagen. Intenta con otro prompt.',
-        isStreaming: false,
-        responseTime: Date.now() - startTime,
-      });
-      return;
-    }
-
-    const dataUrl = `data:${imgMime};base64,${b64}`;
-    const imageAttachment: AttachedFile = {
-      id: Math.random().toString(36).slice(2, 11),
-      name: `imagen-${Date.now()}.png`,
-      type: imgMime,
-      size: Math.floor(b64.length * 0.75),
-      dataUrl,
-    };
-
-    const providerTag = data.image?.provider ?? redirect.provider ?? 'openai';
-    const revised = data.image?.revisedPrompt ? `\n\n_Prompt mejorado:_ ${data.image.revisedPrompt}` : '';
-    const cost = data.image?.costEstimate ? `\n_Proveedor:_ ${providerTag} · _Costo:_ $${data.image.costEstimate.toFixed(4)} · _Tiempo:_ ${data.image.generationMs ?? (Date.now() - startTime)}ms` : '';
-
-    updateAssistant({
-      content: `Imagen generada.${revised}${cost}`,
-      isStreaming: false,
-      responseTime: Date.now() - startTime,
-      provider: providerTag as Provider,
-      attachments: [imageAttachment],
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    updateAssistant({
-      content: `Error al generar imagen: ${msg}`,
-      isStreaming: false,
-      responseTime: Date.now() - startTime,
-    });
-  } finally {
-    useAppStore.setState({ isStreaming: false, abortController: null });
-    const chat = useAppStore.getState().chats.find(c => c.id === chatId);
-    if (chat) await saveChat(chat);
-  }
-}
 
 export const useActiveChat = () =>
   useAppStore(s => s.chats.find(c => c.id === s.activeChatId) ?? null);
