@@ -1,8 +1,9 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Sun, Moon, Bell, User, PanelRight, Menu, Zap } from 'lucide-react';
+import { Sun, Moon, Bell, User, PanelRight, Menu, Zap, LogOut } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { ModelSelector } from './ModelSelector';
 import { PROVIDERS, PROVIDER_ORDER, MODELS_BY_PROVIDER } from '@/lib/ai-providers';
 import type { Provider } from '@/types';
@@ -15,6 +16,7 @@ export function Header() {
     sidebarOpen, setSidebarOpen,
     setSelectedModel,
   } = useAppStore();
+  const { user, logout } = useAuth();
 
   const isDark = settings.theme === 'dark';
 
@@ -96,8 +98,21 @@ export function Header() {
           <PanelRight size={16} />
         </button>
 
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
-          <User size={14} className="text-white" />
+        <div className="flex items-center gap-2">
+          {user && (
+            <span className="hidden sm:block text-xs text-[#B3B3B3] mr-1">{user.name}</span>
+          )}
+          <button
+            onClick={() => logout()}
+            className="p-2 rounded-lg text-[#B3B3B3] hover:text-white hover:bg-white/5 transition-colors"
+            title="Cerrar sesion"
+          >
+            <LogOut size={16} />
+          </button>
+
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+            <User size={14} className="text-white" />
+          </div>
         </div>
       </div>
     </header>

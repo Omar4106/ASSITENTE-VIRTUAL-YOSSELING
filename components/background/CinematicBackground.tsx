@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { NebulaCanvas } from './NebulaCanvas';
@@ -8,24 +8,24 @@ import { ParticleField } from './ParticleField';
 import { YosselingAvatar } from './YosselingAvatar';
 
 export function CinematicBackground() {
-  const { isStreaming, isSpeaking, isListening, activeChatId } = useAppStore(s => ({
-    isStreaming: s.isStreaming,
-    isSpeaking: s.isSpeaking,
-    isListening: s.isListening,
-    activeChatId: s.activeChatId,
-  }));
+  const isStreaming = useAppStore(s => s.isStreaming);
+  const isSpeaking = useAppStore(s => s.isSpeaking);
+  const isListening = useAppStore(s => s.isListening);
+  const activeChatId = useAppStore(s => s.activeChatId);
 
-  const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 });
+  const mouseRef = useRef({ x: 0.5, y: 0.5 });
   const [chatChanged, setChatChanged] = useState(false);
   const prevChatId = useRef<string | null>(null);
+
+  const getMousePos = useCallback(() => mouseRef.current, []);
 
   // Track mouse position normalized 0-1
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      setMousePos({
+      mouseRef.current = {
         x: e.clientX / window.innerWidth,
         y: e.clientY / window.innerHeight,
-      });
+      };
     };
     window.addEventListener('mousemove', handler, { passive: true });
     return () => window.removeEventListener('mousemove', handler);
@@ -49,8 +49,7 @@ export function CinematicBackground() {
       <ParticleField
         isListening={isListening}
         isStreaming={isStreaming}
-        mouseX={mousePos.x}
-        mouseY={mousePos.y}
+        getMousePos={getMousePos}
       />
 
       {/* Layer 3 — Avatar */}
@@ -59,8 +58,7 @@ export function CinematicBackground() {
           isListening={isListening}
           isStreaming={isStreaming}
           isSpeaking={isSpeaking}
-          mouseX={mousePos.x}
-          mouseY={mousePos.y}
+          getMousePos={getMousePos}
           onChatChange={chatChanged}
         />
       </div>

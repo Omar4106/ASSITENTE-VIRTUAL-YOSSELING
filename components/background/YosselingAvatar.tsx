@@ -7,12 +7,11 @@ interface Props {
   isListening: boolean;
   isStreaming: boolean;
   isSpeaking: boolean;
-  mouseX: number; // 0-1
-  mouseY: number; // 0-1
+  getMousePos?: () => { x: number; y: number };
   onChatChange?: boolean;
 }
 
-export function YosselingAvatar({ isListening, isStreaming, isSpeaking, mouseX, mouseY, onChatChange }: Props) {
+export function YosselingAvatar({ isListening, isStreaming, isSpeaking, getMousePos, onChatChange }: Props) {
   const [blink, setBlink] = useState(false);
   const [smileActive, setSmileActive] = useState(false);
   const [tiltDir, setTiltDir] = useState(0);
@@ -20,15 +19,21 @@ export function YosselingAvatar({ isListening, isStreaming, isSpeaking, mouseX, 
   const eyeControls = useAnimation();
 
   // Smooth mouse following for eyes
-  const rawEyeX = (mouseX - 0.5) * 6;
-  const rawEyeY = (mouseY - 0.5) * 4;
-  const eyeXMotion = useMotionValue(rawEyeX);
-  const eyeYMotion = useMotionValue(rawEyeY);
+  const eyeXMotion = useMotionValue(0);
+  const eyeYMotion = useMotionValue(0);
   const eyeX = useSpring(eyeXMotion, { stiffness: 30, damping: 20 });
   const eyeY = useSpring(eyeYMotion, { stiffness: 30, damping: 20 });
 
-  useEffect(() => { eyeXMotion.set(rawEyeX); }, [rawEyeX, eyeXMotion]);
-  useEffect(() => { eyeYMotion.set(rawEyeY); }, [rawEyeY, eyeYMotion]);
+  useEffect(() => {
+    const updateEyes = () => {
+      const mouse = getMousePos?.() ?? { x: 0.5, y: 0.5 };
+      eyeXMotion.set((mouse.x - 0.5) * 6);
+      eyeYMotion.set((mouse.y - 0.5) * 4);
+    };
+    updateEyes();
+    const interval = setInterval(updateEyes, 100);
+    return () => clearInterval(interval);
+  }, [getMousePos, eyeXMotion, eyeYMotion]);
 
   // Blink cycle
   useEffect(() => {

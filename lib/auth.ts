@@ -1,13 +1,12 @@
-import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 
-// --- Supabase admin client (server-side, service role key) ---
-function getSupabaseAdmin() {
+// --- Supabase client (server-side, anon key + RPC functions) ---
+function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) throw new Error('Supabase env vars not configured');
   return createClient(url, key);
 }
@@ -15,13 +14,13 @@ function getSupabaseAdmin() {
 // --- Validation schemas ---
 export const registerSchema = z.object({
   name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').max(50),
-  email: z.string().email('Correo electrónico inválido'),
-  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
+  email: z.string().email('Correo electronico invalido'),
+  password: z.string().min(8, 'La contrasena debe tener al menos 8 caracteres'),
 });
 
 export const loginSchema = z.object({
-  email: z.string().email('Correo electrónico inválido'),
-  password: z.string().min(1, 'La contraseña es obligatoria'),
+  email: z.string().email('Correo electronico invalido'),
+  password: z.string().min(1, 'La contrasena es obligatoria'),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -74,64 +73,56 @@ export async function getSessionToken(): Promise<string | undefined> {
   return cookieStore.get(COOKIE_NAME)?.value;
 }
 
-// --- Auth operations ---
+// --- Auth operations (via Supabase RPC functions) ---
 export async function registerUser(input: RegisterInput) {
-  const supabase = getSupabaseAdmin();
+  const supabase = getSupabase();
 
-  // Check if email already exists
-  const { data: existing } = await supabase
-    .from('users')
-    .select('id')
-    .eq('email', input.email.toLowerCase())
-    .maybeSingle();
-
-  if (existing) {
-    return { error: 'Este correo electrónico ya está registrado' };
-  }
-
-  // Hash password with bcrypt (10 rounds)
-  const salt = await bcrypt.genSalt(10);
-  const passwordHash = await bcrypt.hash(input.password, salt);
-
-  // Insert user
   const { data, error } = await supabase
-    .from('users')
-    .insert({
-      email: input.email.toLowerCase(),
-      password_hash: passwordHash,
-      name: input.name,
-    })
-    .select('id, email, name')
-    .single();
+    .rpc('register_user', {
+      p_email: input.email,
+      p_password: input.password,
+      p_name: input.name,
+    });
 
-  if (error || !data) {
+  if (error) {
+    const msg = error.message;
+    if (msg.includes('ya esta registrado')) {
+      return { error: 'Este correo electronico ya esta registrado' };
+    }
+    if (msg.includes('al menos 8')) {
+      return { error: 'La contrasena debe tener al menos 8 caracteres' };
+    }
+    if (msg.includes('al menos 2')) {
+      return { error: 'El nombre debe tener al menos 2 caracteres' };
+    }
     return { error: 'No se pudo crear la cuenta. Intenta de nuevo.' };
   }
 
-  const token = signToken({ sub: data.id, email: data.email, name: data.name });
-  return { token, user: data };
+  if (!data || data.length === 0) {
+    return { error: 'No se pudo crear la cuenta. Intenta de nuevo.' };
+  }
+
+  const user = data[0];
+  const token = signToken({ sub: user.id, email: user.email, name: user.name });
+  return { token, user };
 }
 
 export async function loginUser(input: LoginInput) {
-  const supabase = getSupabaseAdmin();
+  const supabase = getSupabase();
 
   const { data, error } = await supabase
-    .from('users')
-    .select('id, email, name, password_hash')
-    .eq('email', input.email.toLowerCase())
-    .maybeSingle();
+    .rpc('login_user', {
+      p_email: input.email,
+      p_password: input.password,
+    });
 
-  if (error || !data) {
-    return { error: 'Credenciales inválidas' };
+  if (error || !data || data.length === 0) {
+    return { error: 'Credenciales invalidas' };
   }
 
-  const valid = await bcrypt.compare(input.password, data.password_hash);
-  if (!valid) {
-    return { error: 'Credenciales inválidas' };
-  }
-
-  const token = signToken({ sub: data.id, email: data.email, name: data.name });
-  return { token, user: { id: data.id, email: data.email, name: data.name } };
+  const user = data[0];
+  const token = signToken({ sub: user.id, email: user.email, name: user.name });
+  return { token, user };
 }
 
 export async function getCurrentUser(): Promise<{ id: string; email: string; name: string } | null> {

@@ -16,8 +16,7 @@ interface Particle {
 interface Props {
   isListening?: boolean;
   isStreaming?: boolean;
-  mouseX?: number;
-  mouseY?: number;
+  getMousePos?: () => { x: number; y: number };
 }
 
 const COLORS = [
@@ -48,7 +47,7 @@ function spawnParticle(W: number, H: number, intensity: number): Particle {
   };
 }
 
-export function ParticleField({ isListening, isStreaming, mouseX = 0.5, mouseY = 0.5 }: Props) {
+export function ParticleField({ isListening, isStreaming, getMousePos }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
   const particlesRef = useRef<Particle[]>([]);
@@ -83,8 +82,9 @@ export function ParticleField({ isListening, isStreaming, mouseX = 0.5, mouseY =
       }
 
       // Mouse pull — subtle drift toward cursor
-      const mx = mouseX * W;
-      const my = mouseY * H;
+      const mouse = getMousePos?.() ?? { x: 0.5, y: 0.5 };
+      const mx = mouse.x * W;
+      const my = mouse.y * H;
 
       particlesRef.current = particlesRef.current.filter(p => p.life < p.maxLife && p.y > -20);
 
@@ -166,7 +166,7 @@ export function ParticleField({ isListening, isStreaming, mouseX = 0.5, mouseY =
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener('resize', resize);
     };
-  }, [isListening, isStreaming, mouseX, mouseY]);
+  }, [isListening, isStreaming, getMousePos]);
 
   return (
     <canvas
