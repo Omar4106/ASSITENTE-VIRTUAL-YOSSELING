@@ -23,9 +23,11 @@ export async function POST(req: Request) {
       user: result.user,
       message: 'Cuenta creada correctamente',
     });
-  } catch {
+  } catch (err) {
+    console.error('[Auth] Register endpoint error:', err);
+    const message = err instanceof Error ? err.message : 'Ocurrio un error inesperado. Intenta de nuevo.';
     return NextResponse.json(
-      { error: 'Ocurrió un error inesperado. Intenta de nuevo.' },
+      { error: message },
       { status: 500 }
     );
   }

@@ -86,6 +86,7 @@ export async function registerUser(input: RegisterInput) {
 
   if (error) {
     const msg = error.message;
+    console.error('[Auth] register_user RPC error:', msg);
     if (msg.includes('ya esta registrado')) {
       return { error: 'Este correo electronico ya esta registrado' };
     }
@@ -95,7 +96,7 @@ export async function registerUser(input: RegisterInput) {
     if (msg.includes('al menos 2')) {
       return { error: 'El nombre debe tener al menos 2 caracteres' };
     }
-    return { error: 'No se pudo crear la cuenta. Intenta de nuevo.' };
+    return { error: `Error de base de datos: ${msg}` };
   }
 
   if (!data || data.length === 0) {
