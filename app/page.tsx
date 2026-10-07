@@ -1,10 +1,8 @@
 'use client';
 
 import { useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
-import { useAuth } from '@/components/auth/AuthProvider';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { ChatArea } from '@/components/chat/ChatArea';
 import { ToolsPanel } from '@/components/tools/ToolsPanel';
@@ -46,18 +44,10 @@ function SidebarOverlayPanel() {
 
 export default function Home() {
   const { initStore, sidebarOpen, createNewChat } = useAppStore();
-  const { user, loading } = useAuth();
-  const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.replace('/login');
-    }
-  }, [loading, user, router]);
-
-  useEffect(() => {
-    if (user) initStore();
-  }, [initStore, user]);
+    initStore();
+  }, [initStore]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -70,17 +60,6 @@ export default function Home() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
-
-  if (loading || !user) {
-    return (
-      <>
-        <CinematicBackground />
-        <div className="relative flex h-dvh items-center justify-center" style={{ zIndex: 1 }}>
-          <div className="w-10 h-10 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
-        </div>
-      </>
-    );
-  }
 
   return (
     <>
