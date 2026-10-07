@@ -7,6 +7,7 @@ import { ModelSelector } from './ModelSelector';
 import { PROVIDERS, PROVIDER_ORDER, MODELS_BY_PROVIDER } from '@/lib/ai-providers';
 import type { Provider } from '@/types';
 import { cn } from '@/lib/utils';
+import { OfflineStatus } from '@/components/offline/OfflineStatus';
 
 export function Header() {
   const {
@@ -77,10 +78,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-green-500/10 border border-green-500/20">
-          <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-[10px] text-green-400 font-medium">Conectado</span>
-        </div>
+        <OfflineStatus />
 
         <button onClick={toggleTheme} className="p-2 rounded-lg text-[#B3B3B3] hover:text-white hover:bg-white/5 transition-colors">
           {isDark ? <Sun size={16} /> : <Moon size={16} />}

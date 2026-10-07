@@ -14,6 +14,7 @@ import {
 } from '@/lib/db';
 import { getDefaultModel } from '@/lib/ai-config';
 import { buildMemoryContext, detectMemory, isDuplicate, createMemoryItem, exportMemory, parseMemoryImport } from '@/lib/memory';
+import { sendThroughYosseling } from '@/lib/yosseling-engine';
 
 function genId() {
   return Math.random().toString(36).slice(2, 11) + Math.random().toString(36).slice(2, 11);
@@ -246,17 +247,13 @@ export const useAppStore = create<AppState>()(
             })
           : chatMsgs;
 
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: messagePayload,
-            model: state.selectedModel,
-            provider: state.selectedProvider === 'auto' ? null : state.selectedProvider,
-            autoRoute: state.selectedProvider === 'auto',
-            personality: get().settings.personality,
-            memoryContext: memCtx,
-          }),
+        const { response } = await sendThroughYosseling({
+          messages: messagePayload,
+          model: state.selectedModel,
+          provider: state.selectedProvider,
+          autoRoute: state.selectedProvider === 'auto',
+          personality: get().settings.personality,
+          memoryContext: memCtx,
           signal: controller.signal,
         });
 

@@ -1,0 +1,14 @@
+{
+  "name": "Yosseling",
+  "short_name": "Yosseling",
+  "description": "Tu asistente inteligente con modo local",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080612",
+  "theme_color": "#080612",
+  "icons": [{
+    "src": "/assets/images/logo_de_yosseling_sin_fondo_.png",
+    "sizes": "192x192",
+    "type": "image/png"
+  }]
+}

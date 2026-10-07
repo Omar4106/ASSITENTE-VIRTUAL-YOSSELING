@@ -4,13 +4,14 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Settings, Palette, Volume2, Languages, Type, Download,
-  Upload, Trash2, User, Zap, Brain, Check, Heart, Info,
+  Upload, Trash2, User, Zap, Brain, Check, Heart, Info, WifiOff,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { MODELS, PROVIDERS, PROVIDER_ORDER } from '@/lib/ai-providers';
 import { YOSSELING_IDENTITY } from '@/lib/personality';
 import type { PersonalityStyle } from '@/types';
 import { cn } from '@/lib/utils';
+import { OfflineManager } from './OfflineManager';
 
 export function SettingsPanel() {
   const { settings, updateSettings, clearAllChats, clearMemory, chats, selectedProvider, selectedModel, importChats: storeImportChats } = useAppStore();
@@ -216,6 +217,11 @@ export function SettingsPanel() {
               </optgroup>
             ))}
           </select>
+        </Section>
+
+        {/* Offline mode */}
+        <Section icon={<WifiOff size={15} />} title="Modo Offline">
+          <OfflineManager />
         </Section>
 
         {/* Memory settings */}

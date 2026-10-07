@@ -29,7 +29,7 @@ interface ContentPart {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function streamText(msg: string): NextResponse {
+function streamText(msg: string, failed = false): NextResponse {
   const enc = new TextEncoder();
   return new NextResponse(
     new ReadableStream({
@@ -39,7 +39,7 @@ function streamText(msg: string): NextResponse {
         c.close();
       },
     }),
-    { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' } }
+    { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', ...(failed ? { 'X-Yosseling-Failure': 'true' } : {}) } }
   );
 }
 
@@ -250,7 +250,7 @@ export async function POST(req: NextRequest) {
 
     if (available.length === 0) {
       console.error('[Yosseling] No AI provider keys are configured in the production environment');
-      return streamText('No hay proveedores de IA configurados en el entorno de producción. Añade al menos una clave API en la configuración de variables de entorno del despliegue.');
+      return streamText('No hay proveedores de IA configurados en el entorno de producción. Añade al menos una clave API en la configuración de variables de entorno del despliegue.', true);
     }
 
     const triedProviders: string[] = [];
@@ -301,9 +301,9 @@ export async function POST(req: NextRequest) {
     }
 
     console.error('[Yosseling] All configured providers failed:', failureReasons.join(' | '));
-    return streamText('Los proveedores configurados no pudieron responder. Verifica que las claves API estén vigentes y que el modelo seleccionado siga disponible.');
+    return streamText('Los proveedores configurados no pudieron responder. Verifica que las claves API estén vigentes y que el modelo seleccionado siga disponible.', true);
   } catch (err) {
     console.error('[Yosseling] Router unexpected error:', err);
-    return streamText('Ocurrió un error inesperado. Por favor intenta de nuevo.');
+    return streamText('Ocurrió un error inesperado. Por favor intenta de nuevo.', true);
   }
 }
