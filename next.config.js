@@ -25,7 +25,7 @@ loadEnvFile('.env');
 loadEnvFile('.env.local');
 
 console.log('[Yosseling] Env check at config load:');
-console.log('  GROQ_API_KEY:', process.env.GROQ_API_KEY ? `set (${process.env.GROQ_API_KEY.slice(0, 8)}...)` : 'NOT SET');
+console.log('  GROQ_API_KEY:', process.env.GROQ_API_KEY ? 'set' : 'NOT SET');
 console.log('  OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'set' : 'NOT SET');
 console.log('  GEMINI_API_KEY:', process.env.GEMINI_API_KEY ? 'set' : 'NOT SET');
 console.log('  OPENROUTER_API_KEY:', process.env.OPENROUTER_API_KEY ? 'set' : 'NOT SET');
