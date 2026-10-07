@@ -92,7 +92,7 @@ export const PROVIDER_CONFIG: Record<Exclude<Provider, 'auto'>, ProviderConfigTy
     envKey: 'GEMINI_API_KEY',
     models: [
       {
-        id: 'gemini-2.5-flash-preview-05-20',
+        id: 'gemini-2.5-flash',
         name: 'Gemini 2.5 Flash',
         description: 'Fast multimodal — vision, OCR, docs',
         contextWindow: 1000000,
@@ -100,7 +100,7 @@ export const PROVIDER_CONFIG: Record<Exclude<Provider, 'auto'>, ProviderConfigTy
         supportsVision: true,
       },
       {
-        id: 'gemini-2.5-pro-preview-06-05',
+        id: 'gemini-2.5-pro',
         name: 'Gemini 2.5 Pro',
         description: 'Most capable — complex analysis',
         contextWindow: 1000000,
@@ -115,7 +115,7 @@ export const PROVIDER_CONFIG: Record<Exclude<Provider, 'auto'>, ProviderConfigTy
     apiBaseUrl: 'https://openrouter.ai/api/v1',
     envKey: 'OPENROUTER_API_KEY',
     models: [
-      { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', description: 'Meta latest Llama', contextWindow: 131072, isDefault: true },
+      { id: 'openrouter/free', name: 'Modelo gratuito automático', description: 'OpenRouter selecciona un modelo disponible', contextWindow: 131072, isDefault: true },
       { id: 'qwen/qwen3-coder', name: 'Qwen3 Coder', description: 'Advanced coding', contextWindow: 131072 },
       { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', description: 'Reasoning model', contextWindow: 64000 },
       { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', description: 'Via OpenRouter', contextWindow: 200000, supportsVision: true },
@@ -128,7 +128,7 @@ export const PROVIDER_CONFIG: Record<Exclude<Provider, 'auto'>, ProviderConfigTy
     apiBaseUrl: 'https://api.cerebras.ai/v1',
     envKey: 'CEREBRAS_API_KEY',
     models: [
-      { id: 'llama-3.3-70b', name: 'Llama 3.3 70B', description: 'Ultra-fast Cerebras', contextWindow: 8192, isDefault: true },
+      { id: 'llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout', description: 'Rápido y multimodal', contextWindow: 32768, isDefault: true },
       { id: 'llama-3.1-8b', name: 'Llama 3.1 8B', description: 'Fast & efficient', contextWindow: 8192 },
     ],
   },
@@ -205,11 +205,8 @@ export function detectTaskType(content: string): TaskType {
 // ============================================================
 // ERROR HANDLING
 // ============================================================
-export function shouldFallback(errorMsg: string): boolean {
-  const lower = errorMsg.toLowerCase();
-  if (lower.includes('invalid') && lower.includes('key')) return false;
-  if (lower.includes('invalid_api_key')) return false;
-  return true; // fallback on all other errors
+export function shouldFallback(_errorMsg: string): boolean {
+  return true;
 }
 
 export function getFriendlyError(errorMsg: string): string {

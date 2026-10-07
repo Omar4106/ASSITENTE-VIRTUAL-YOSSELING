@@ -249,10 +249,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (available.length === 0) {
-      return streamText('No hay ningún proveedor de IA configurado. Por favor agrega al menos una API key en el archivo .env (GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY, u OPENAI_API_KEY).');
+      console.error('[Yosseling] No AI provider keys are configured in the production environment');
+      return streamText('No hay proveedores de IA configurados en el entorno de producción. Añade al menos una clave API en la configuración de variables de entorno del despliegue.');
     }
 
     const triedProviders: string[] = [];
+    const failureReasons: string[] = [];
     let fallbackUsed = false;
 
     for (const currentProvider of available) {
@@ -288,17 +290,18 @@ export async function POST(req: NextRequest) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[Yosseling] ${currentProvider} failed:`, msg);
         triedProviders.push(currentProvider);
+        failureReasons.push(`${currentProvider}: ${msg.slice(0, 180)}`);
         fallbackUsed = true;
 
         if (!shouldFallback(msg)) {
-          // Auth error — show message, don't continue
-          return streamText('La API key no es válida. Verifica tu configuración en el archivo .env.');
+          return streamText('La conexión con el proveedor seleccionado no está disponible.');
         }
         // Continue to next provider
       }
     }
 
-    return streamText('Todos los proveedores de IA están temporalmente no disponibles. Por favor intenta de nuevo en unos momentos.');
+    console.error('[Yosseling] All configured providers failed:', failureReasons.join(' | '));
+    return streamText('Los proveedores configurados no pudieron responder. Verifica que las claves API estén vigentes y que el modelo seleccionado siga disponible.');
   } catch (err) {
     console.error('[Yosseling] Router unexpected error:', err);
     return streamText('Ocurrió un error inesperado. Por favor intenta de nuevo.');
