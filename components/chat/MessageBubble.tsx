@@ -154,7 +154,19 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
             </div>
           ) : (
             <>
-              {!isUser ? (
+              {message.isImageGenerating && (
+                <div className="flex items-center gap-2 text-cyan-200">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />
+                  Generando tu imagen...
+                </div>
+              )}
+              {message.imageUrl && (
+                <a href={message.imageUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block overflow-hidden rounded-xl border border-white/10">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={message.imageUrl} alt="Imagen generada por Yosseling" className="max-h-[520px] w-full object-cover" />
+                </a>
+              )}
+              {message.content && (!isUser ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
@@ -191,7 +203,7 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
                 </ReactMarkdown>
               ) : (
                 <p className="whitespace-pre-wrap">{message.content}</p>
-              )}
+              ))}
 
               {/* Streaming cursor */}
               {message.isStreaming && (

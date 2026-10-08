@@ -48,6 +48,8 @@ export interface Message {
   provider?: Provider;
   attachments?: AttachedFile[];
   isStreaming?: boolean;
+  isImageGenerating?: boolean;
+  imageUrl?: string;
   responseTime?: number;
   tokenCount?: number;
   isFavorite?: boolean;

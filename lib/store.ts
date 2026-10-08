@@ -15,6 +15,7 @@ import {
 import { getDefaultModel } from '@/lib/ai-config';
 import { buildMemoryContext, detectMemory, isDuplicate, createMemoryItem, exportMemory, parseMemoryImport } from '@/lib/memory';
 import { sendThroughYosseling } from '@/lib/yosseling-engine';
+import { isImageGenerationRequest } from '@/lib/image-intent';
 
 function genId() {
   return Math.random().toString(36).slice(2, 11) + Math.random().toString(36).slice(2, 11);
@@ -190,6 +191,7 @@ export const useAppStore = create<AppState>()(
         model: state.selectedModel,
         provider: state.selectedProvider,
         isStreaming: true,
+        isImageGenerating: isImageGenerationRequest(content),
       };
 
       const updatedMessages = [...(chat.messages ?? []), userMsg, assistantMsg];
@@ -223,28 +225,55 @@ export const useAppStore = create<AppState>()(
       const startTime = Date.now();
 
       try {
+        if (isImageGenerationRequest(content)) {
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            const offlineMessage = 'En este momento estoy sin conexión a internet, así que mis herramientas de dibujo están desactivadas temporalmente. ¡Vuelve a conectarme y con gusto te haré esa imagen!';
+            const offlineChat = get().chats.find(c => c.id === chatId);
+            if (offlineChat) {
+              const savedOffline: Chat = {
+                ...offlineChat,
+                messages: offlineChat.messages.map(m => m.id === assistantMsg.id ? { ...m, content: offlineMessage, isStreaming: false, isImageGenerating: false } : m),
+                updatedAt: Date.now(),
+              };
+              set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedOffline : c), aiCenterData: s.aiCenterData ? { ...s.aiCenterData, status: 'success' } : null }));
+              await saveChat(savedOffline);
+            }
+            return;
+          }
+
+          const imageResponse = await fetch('/api/images', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: content }),
+            signal: controller.signal,
+          });
+          const imageResult = await imageResponse.json() as { url?: string; error?: string };
+          if (!imageResponse.ok || !imageResult.url) throw new Error(imageResult.error ?? 'No se pudo generar la imagen');
+          const imageChat = get().chats.find(c => c.id === chatId);
+          if (imageChat) {
+            const savedImage: Chat = {
+              ...imageChat,
+              messages: imageChat.messages.map(m => m.id === assistantMsg.id ? { ...m, content: 'Aquí tienes la imagen que imaginé para ti.', imageUrl: imageResult.url, isStreaming: false, isImageGenerating: false } : m),
+              updatedAt: Date.now(),
+            };
+            set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedImage : c), aiCenterData: s.aiCenterData ? { ...s.aiCenterData, status: 'success', providerUsed: 'openai' } : null }));
+            await saveChat(savedImage);
+          }
+          return;
+        }
+
         const memCtx = buildMemoryContext(get().memory);
         const chatMsgs = updatedMessages
           .filter(m => !(m.role === 'assistant' && m.isStreaming))
           .map(m => ({ role: m.role, content: m.content }));
 
-        // Build the payload — include image data if files are attached
-        const hasImages = files?.some(f => f.type.startsWith('image/') && f.dataUrl);
-        const messagePayload = hasImages
-          ? chatMsgs.map((m, i) => {
-              if (i === chatMsgs.length - 1 && m.role === 'user' && files?.length) {
-                return {
-                  ...m,
-                  attachments: files.map(f => ({
-                    name: f.name,
-                    type: f.type,
-                    dataUrl: f.dataUrl,
-                    content: f.content,
-                  })),
-                };
+        const messagePayload = files?.length
+          ? chatMsgs.map((m, i) => i === chatMsgs.length - 1 && m.role === 'user'
+            ? {
+                ...m,
+                attachments: files.map(f => ({ name: f.name, type: f.type, dataUrl: f.dataUrl, content: f.content })),
               }
-              return m;
-            })
+            : m)
           : chatMsgs;
 
         const { response } = await sendThroughYosseling({
