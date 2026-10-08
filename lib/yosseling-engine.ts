@@ -15,7 +15,11 @@ export interface OfflineConfig {
 }
 
 export interface EngineRequest {
-  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
+  messages: Array<{
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    attachments?: Array<{ name: string; type: string; dataUrl?: string; content?: string }>;
+  }>;
   model: string;
   provider: Provider;
   autoRoute: boolean;
@@ -111,7 +115,13 @@ async function callOllama(request: EngineRequest, config: OfflineConfig): Promis
   const endpoint = `${config.ollamaUrl.replace(/\/$/, '')}/api/chat`;
   const messages = [
     { role: 'system', content: buildSystemPrompt(request.personality, request.memoryContext) },
-    ...request.messages.filter(message => message.role !== 'system'),
+    ...request.messages.filter(message => message.role !== 'system').map(message => ({
+      role: message.role,
+      content: [message.content, ...(message.attachments ?? []).filter(attachment => attachment.content).map(attachment => `[Archivo adjunto: ${attachment.name}]\n${attachment.content}`)].filter(Boolean).join('\n\n'),
+      ...(message.attachments?.some(attachment => attachment.dataUrl)
+        ? { images: message.attachments.filter(attachment => attachment.dataUrl).map(attachment => attachment.dataUrl!.split(',')[1] ?? attachment.dataUrl) }
+        : {}),
+    })),
   ];
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -143,11 +153,17 @@ async function callOllama(request: EngineRequest, config: OfflineConfig): Promis
 }
 
 async function callWebGPU(request: EngineRequest, config: OfflineConfig): Promise<Response> {
+  if (request.messages.some(message => message.attachments?.some(attachment => attachment.dataUrl))) {
+    throw new Error('LOCAL_VISION_UNSUPPORTED');
+  }
   const webllm = await import('@mlc-ai/web-llm');
   const engine = await webllm.CreateMLCEngine(config.webgpuModel);
   const messages = [
     { role: 'system' as const, content: buildSystemPrompt(request.personality, request.memoryContext) },
-    ...request.messages.filter(message => message.role !== 'system'),
+    ...request.messages.filter(message => message.role !== 'system').map(message => ({
+      role: message.role,
+      content: [message.content, ...(message.attachments ?? []).filter(attachment => attachment.content).map(attachment => `[Archivo adjunto: ${attachment.name}]\n${attachment.content}`)].filter(Boolean).join('\n\n'),
+    })),
   ];
   const stream = await engine.chat.completions.create({ messages, stream: true });
   async function* chunks(): AsyncIterable<string> {
@@ -182,7 +198,10 @@ export async function sendThroughYosseling(request: EngineRequest): Promise<{ re
       ? await callWebGPU(request, config)
       : await callOllama(request, config);
     return { response, mode: 'local' };
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === 'LOCAL_VISION_UNSUPPORTED') {
+      throw new Error('En modo local, este modelo del navegador no puede analizar imágenes. Vuelve al modo nube o configura Ollama con un modelo de visión como llama3.2-vision.');
+    }
     throw new Error('Me he quedado sin conexión a internet y noto que tu motor local no está activo. Revisa el Gestor de Modo Offline o enciende tu servidor para que podamos seguir trabajando.');
   }
 }

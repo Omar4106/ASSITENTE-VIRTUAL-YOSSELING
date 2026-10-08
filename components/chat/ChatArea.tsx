@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useAppStore, useActiveChat } from '@/lib/store';
 import { MessageBubble } from './MessageBubble';
 import { InputBar } from './InputBar';
 import { useVoice } from '@/hooks/useVoice';
+import { useFileUpload } from '@/hooks/useFileUpload';
 
 const QUICK_ACTIONS = [
   { label: 'Generar imagen', prompt: 'Genera una imagen de ' },
@@ -24,6 +25,8 @@ export function ChatArea() {
   const { activeChatId, isStreaming, sendMessage } = useAppStore();
   const activeChat = useActiveChat();
   const { speak } = useVoice();
+  const { processFiles, isProcessing, processingName } = useFileUpload();
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -33,8 +36,30 @@ export function ChatArea() {
 
   const hasMessages = (activeChat?.messages?.length ?? 0) > 0;
 
+  const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDraggingFiles(false);
+    if (event.dataTransfer.files.length > 0) await processFiles(event.dataTransfer.files);
+  };
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div
+      className="relative flex flex-col h-full overflow-hidden"
+      onDragOver={event => { event.preventDefault(); setIsDraggingFiles(true); }}
+      onDragLeave={event => { if (event.currentTarget === event.target) setIsDraggingFiles(false); }}
+      onDrop={handleDrop}
+    >
+      {isDraggingFiles && (
+        <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-cyan-300/60 bg-cyan-950/60 text-sm font-medium text-cyan-100 backdrop-blur-sm">
+          Suelta tus archivos para que Yosseling los analice
+        </div>
+      )}
+      {isProcessing && (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-cyan-300/20 bg-cyan-950/80 px-4 py-2 text-xs text-cyan-100 shadow-lg">
+          Extrayendo texto del archivo{processingName ? `: ${processingName}` : '...'}
+        </div>
+      )}
       {/* Messages area */}
       <div ref={containerRef} className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">

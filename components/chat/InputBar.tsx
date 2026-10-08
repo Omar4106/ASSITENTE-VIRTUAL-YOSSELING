@@ -18,7 +18,7 @@ export function InputBar() {
     isListening, isSpeaking,
   } = useAppStore();
   const { startListening, stopListening } = useVoice();
-  const { processFiles } = useFileUpload();
+  const { processFiles, isProcessing, processingName, error, clearError } = useFileUpload();
 
   const [input, setInput] = useState('');
   const [expanded, setExpanded] = useState(false);
@@ -73,6 +73,18 @@ export function InputBar() {
 
   return (
     <div className="px-4 pb-4 pt-2">
+      {isProcessing && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-200">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />
+          Extrayendo texto del archivo{processingName ? `: ${processingName}` : '...'}
+        </div>
+      )}
+      {error && (
+        <button onClick={clearError} className="mb-3 w-full rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-left text-xs text-red-200">
+          {error}
+        </button>
+      )}
+
       {/* Pending files */}
       <AnimatePresence>
         {pendingFiles.length > 0 && (
@@ -178,7 +190,7 @@ export function InputBar() {
         type="file"
         className="hidden"
         multiple
-        accept=".pdf,.docx,.txt,.csv,.xlsx,.doc"
+        accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv,.xlsx,.ts,.tsx,.js,.jsx,.css,.html,.xml,.yaml,.yml,.sql,.py,.java,.c,.cpp,.h,.hpp,.log,.ini,.env,.sh,.bat,.toml,.exe,.dll,.bin,.msi,.so,.dylib,.app,.png,.jpg,.jpeg,.webp,.gif"
         onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ''; }}
       />
       <input
@@ -186,7 +198,7 @@ export function InputBar() {
         type="file"
         className="hidden"
         multiple
-        accept="image/*"
+        accept="image/png,image/jpeg,image/webp,image/gif"
         onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ''; }}
       />
     </div>
