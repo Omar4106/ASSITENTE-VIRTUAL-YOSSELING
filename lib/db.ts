@@ -77,6 +77,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultModel: 'llama-3.3-70b-versatile',
   defaultProvider: 'groq',
   userName: 'Usuario',
+  userAvatar: null,
   voice: { enabled: true, voiceName: '', rate: 1.0, pitch: 1.0, volume: 1.0, language: 'es' },
   autoSave: true,
   streamingEnabled: true,
@@ -85,6 +86,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   memoryEnabled: true,
   memoryAutoSave: true,
   personality: 'amigable',
+  adaptiveProfile: {
+    tonePreference: null,
+    frequentTopics: [],
+    responseStyle: 'balanced',
+    languageFormality: 'casual',
+    interactionCount: 0,
+    lastUpdated: 0,
+  },
+  pendingOfflineInstall: false,
 };
 
 export function loadSettings(): AppSettings {

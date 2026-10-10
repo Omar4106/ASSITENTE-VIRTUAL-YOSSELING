@@ -11,7 +11,7 @@ import {
 } from '@/lib/ai-config';
 import { buildSystemPrompt } from '@/lib/personality';
 import { getEnvVar } from '@/lib/env';
-import type { Provider } from '@/types';
+import type { Provider, AdaptiveProfile } from '@/types';
 
 export const runtime = 'nodejs';
 
@@ -219,10 +219,14 @@ function wrapGeminiStream(geminiRes: Response): Response {
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, model, provider, autoRoute, personality, memoryContext } = await req.json();
+    const { messages, model, provider, autoRoute, personality, memoryContext, adaptiveProfile } = await req.json();
 
-    // Build system prompt with Yosseling personality + memory
-    const systemPrompt = buildSystemPrompt(personality ?? 'amigable', memoryContext);
+    // Build system prompt with Yosseling personality + memory + adaptive profile
+    const systemPrompt = buildSystemPrompt(
+      personality ?? 'amigable',
+      memoryContext,
+      adaptiveProfile as AdaptiveProfile | undefined,
+    );
     const lastUserMsg = [...messages].reverse().find((m: ChatMessage) => m.role === 'user');
     const lastUserText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
 

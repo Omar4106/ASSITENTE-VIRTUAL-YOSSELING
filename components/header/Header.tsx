@@ -1,20 +1,16 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { Sun, Moon, Bell, User, PanelRight, Menu, Zap } from 'lucide-react';
+import { Sun, Moon, Bell, User, PanelRight, Menu } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { ModelSelector } from './ModelSelector';
-import { PROVIDERS, PROVIDER_ORDER, MODELS_BY_PROVIDER } from '@/lib/ai-providers';
-import type { Provider } from '@/types';
 import { cn } from '@/lib/utils';
 import { OfflineStatus } from '@/components/offline/OfflineStatus';
 
 export function Header() {
   const {
-    selectedProvider, settings, updateSettings,
+    settings, updateSettings,
     rightPanelOpen, setRightPanelOpen,
     sidebarOpen, setSidebarOpen,
-    setSelectedModel,
   } = useAppStore();
   const isDark = settings.theme === 'dark';
 
@@ -23,15 +19,6 @@ export function Header() {
     if (typeof document !== 'undefined') {
       document.documentElement.classList.toggle('light', isDark);
     }
-  };
-
-  const switchProvider = (p: Provider) => {
-    if (p === 'auto') {
-      setSelectedModel('auto', 'auto');
-      return;
-    }
-    const models = MODELS_BY_PROVIDER[p];
-    if (models?.[0]) setSelectedModel(models[0].id, p);
   };
 
   return (
@@ -45,36 +32,6 @@ export function Header() {
         </button>
 
         <ModelSelector />
-
-        <div className="hidden sm:flex items-center gap-1.5">
-          {PROVIDER_ORDER.map(p => {
-            const info = PROVIDERS[p];
-            const isActive = p === selectedProvider;
-            return (
-              <motion.button
-                key={p}
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => switchProvider(p)}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
-                  isActive ? 'text-white' : 'text-[#B3B3B3] border-white/[0.06] hover:border-white/20'
-                )}
-                style={isActive ? {
-                  borderColor: info.color + '50',
-                  background: info.color + '15',
-                  color: info.color,
-                } : {}}
-              >
-                {p === 'auto'
-                  ? <Zap size={10} style={{ color: isActive ? info.color : '#B3B3B3' }} />
-                  : <div className="w-1.5 h-1.5 rounded-full" style={{ background: isActive ? info.color : '#B3B3B3' }} />
-                }
-                {info.name}
-              </motion.button>
-            );
-          })}
-        </div>
       </div>
 
       <div className="flex items-center gap-2">
@@ -94,9 +51,14 @@ export function Header() {
         </button>
 
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
-            <User size={14} className="text-white" />
-          </div>
+          {settings.userAvatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={settings.userAvatar} alt={settings.userName} className="w-8 h-8 rounded-full object-cover border border-white/10" />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center border border-white/10">
+              <User size={14} className="text-white" />
+            </div>
+          )}
         </div>
       </div>
     </header>

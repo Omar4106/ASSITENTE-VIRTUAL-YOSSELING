@@ -41,7 +41,12 @@ export function OfflineManager() {
       setDownloaded(state.downloaded);
       setProgress(state.progress);
     });
-  }, []);
+    const handleInstallRequest = () => {
+      if (hardware.webgpu) installBrowserModel();
+    };
+    window.addEventListener('yosseling-install-offline', handleInstallRequest);
+    return () => window.removeEventListener('yosseling-install-offline', handleInstallRequest);
+  }, [hardware.webgpu]);
 
   const recommendation = useMemo(() => {
     if (hardware.webgpu && hardware.device === 'PC') return 'WebGPU en navegador u Ollama para modelos más avanzados.';

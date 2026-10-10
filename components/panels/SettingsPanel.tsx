@@ -1,13 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Settings, Palette, Volume2, Languages, Type, Download,
-  Upload, Trash2, User, Zap, Brain, Check, Heart, Info, WifiOff,
+  Upload, Trash2, User, Zap, Brain, Check, Heart, Info, WifiOff, Camera,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
-import { MODELS, PROVIDERS, PROVIDER_ORDER } from '@/lib/ai-providers';
 import { YOSSELING_IDENTITY } from '@/lib/personality';
 import type { PersonalityStyle } from '@/types';
 import { cn } from '@/lib/utils';
@@ -16,11 +15,28 @@ import { OfflineManager } from './OfflineManager';
 export function SettingsPanel() {
   const { settings, updateSettings, clearAllChats, clearMemory, chats, selectedProvider, selectedModel, importChats: storeImportChats } = useAppStore();
   const [saved, setSaved] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const save = (partial: Parameters<typeof updateSettings>[0]) => {
     updateSettings(partial);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
+  };
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      alert('La imagen es demasiado grande. Usa una de menos de 2 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') save({ userAvatar: result });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const exportChats = (format: 'json' | 'txt' | 'md') => {
@@ -78,9 +94,40 @@ export function SettingsPanel() {
       </div>
 
       <div className="p-4 space-y-6">
-        {/* User */}
-        <Section icon={<User size={15} />} title="Usuario">
+        {/* User Profile */}
+        <Section icon={<User size={15} />} title="Perfil de Usuario">
           <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              {settings.userAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={settings.userAvatar} alt={settings.userName} className="w-16 h-16 rounded-full object-cover border-2 border-purple-500/30" />
+              ) : (
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center border-2 border-purple-500/30">
+                  <User size={24} className="text-white" />
+                </div>
+              )}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/[0.08] text-xs text-[#B3B3B3] hover:border-purple-500/30 hover:text-white transition-all"
+              >
+                <Camera size={13} /> Cambiar avatar
+              </button>
+              {settings.userAvatar && (
+                <button
+                  onClick={() => save({ userAvatar: null })}
+                  className="text-xs text-red-400 hover:text-red-300"
+                >
+                  Quitar
+                </button>
+              )}
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={handleAvatarUpload}
+            />
             <LabeledInput
               label="Nombre"
               value={settings.userName}
@@ -202,22 +249,20 @@ export function SettingsPanel() {
           </div>
         </Section>
 
-        {/* Default model */}
-        <Section icon={<Zap size={15} />} title="Modelo predeterminado">
-          <select
-            value={settings.defaultModel}
-            onChange={e => save({ defaultModel: e.target.value })}
-            className="w-full bg-[#171923] border border-white/[0.06] text-white text-xs rounded-lg px-3 py-2 outline-none focus:border-purple-500/50"
-          >
-            {PROVIDER_ORDER.filter(p => p !== 'auto').map(prov => (
-              <optgroup key={prov} label={PROVIDERS[prov].name}>
-                {MODELS.filter(m => m.provider === prov).map(m => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </Section>
+        {/* Adaptive profile info */}
+        {settings.adaptiveProfile.interactionCount > 2 && (
+          <Section icon={<Brain size={15} />} title="Adaptación Automática">
+            <div className="rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] p-3 space-y-2">
+              <p className="text-xs text-cyan-200">Yosseling está aprendiendo tus preferencias:</p>
+              <InfoRow label="Interacciones" value={String(settings.adaptiveProfile.interactionCount)} />
+              <InfoRow label="Estilo de respuesta" value={settings.adaptiveProfile.responseStyle} />
+              <InfoRow label="Formalidad" value={settings.adaptiveProfile.languageFormality} />
+              {settings.adaptiveProfile.frequentTopics.length > 0 && (
+                <InfoRow label="Temas frecuentes" value={settings.adaptiveProfile.frequentTopics.slice(0, 4).join(', ')} />
+              )}
+            </div>
+          </Section>
+        )}
 
         {/* Offline mode */}
         <Section icon={<WifiOff size={15} />} title="Modo Offline">
@@ -259,6 +304,9 @@ export function SettingsPanel() {
             >
               <Upload size={13} /> Importar chats
             </button>
+            <p className="text-[10px] text-[#B3B3B3]/60 mt-2">
+              Toda tu información se guarda exclusivamente en este dispositivo. No se envía nada a ningún servidor.
+            </p>
           </div>
         </Section>
 
@@ -275,8 +323,7 @@ export function SettingsPanel() {
             <InfoRow label="Creado por" value={YOSSELING_IDENTITY.creator} />
             <InfoRow label="Fecha" value={YOSSELING_IDENTITY.createdAt} />
             <div className="pt-2 border-t border-white/[0.06]">
-              <InfoRow label="Proveedor activo" value={PROVIDERS[selectedProvider]?.name ?? selectedProvider} />
-              <InfoRow label="Modelo activo" value={selectedModel} />
+              <InfoRow label="Modo activo" value={selectedProvider === 'groq' ? 'Ultra Rápido' : 'Automático'} />
               <InfoRow label="Personalidad" value={settings.personality} />
             </div>
             <p className="text-[10px] text-[#B3B3B3]/60 pt-1 italic">{YOSSELING_IDENTITY.nameOrigin}</p>

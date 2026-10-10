@@ -103,6 +103,15 @@ export interface VoiceSettings {
   language: Language;
 }
 
+export interface AdaptiveProfile {
+  tonePreference: string | null;
+  frequentTopics: string[];
+  responseStyle: 'concise' | 'detailed' | 'balanced';
+  languageFormality: 'casual' | 'formal' | 'mixed';
+  interactionCount: number;
+  lastUpdated: number;
+}
+
 export interface AppSettings {
   theme: Theme;
   language: Language;
@@ -111,6 +120,7 @@ export interface AppSettings {
   defaultModel: string;
   defaultProvider: Provider;
   userName: string;
+  userAvatar: string | null;
   voice: VoiceSettings;
   autoSave: boolean;
   streamingEnabled: boolean;
@@ -119,6 +129,8 @@ export interface AppSettings {
   memoryEnabled: boolean;
   memoryAutoSave: boolean;
   personality: PersonalityStyle;
+  adaptiveProfile: AdaptiveProfile;
+  pendingOfflineInstall: boolean;
 }
 
 export type SidebarView =

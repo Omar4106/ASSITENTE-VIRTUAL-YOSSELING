@@ -2,7 +2,7 @@
 
 import { openDB } from 'idb';
 import { buildSystemPrompt } from '@/lib/personality';
-import type { Provider } from '@/types';
+import type { Provider, AdaptiveProfile } from '@/types';
 
 export type RuntimeMode = 'cloud' | 'local';
 
@@ -25,6 +25,7 @@ export interface EngineRequest {
   autoRoute: boolean;
   personality: Parameters<typeof buildSystemPrompt>[0];
   memoryContext?: string;
+  adaptiveProfile?: AdaptiveProfile;
   signal?: AbortSignal;
 }
 
@@ -114,7 +115,7 @@ function sseResponse(chunks: AsyncIterable<string>, headers: Record<string, stri
 async function callOllama(request: EngineRequest, config: OfflineConfig): Promise<Response> {
   const endpoint = `${config.ollamaUrl.replace(/\/$/, '')}/api/chat`;
   const messages = [
-    { role: 'system', content: buildSystemPrompt(request.personality, request.memoryContext) },
+    { role: 'system', content: buildSystemPrompt(request.personality, request.memoryContext, request.adaptiveProfile) },
     ...request.messages.filter(message => message.role !== 'system').map(message => ({
       role: message.role,
       content: [message.content, ...(message.attachments ?? []).filter(attachment => attachment.content).map(attachment => `[Archivo adjunto: ${attachment.name}]\n${attachment.content}`)].filter(Boolean).join('\n\n'),
@@ -159,7 +160,7 @@ async function callWebGPU(request: EngineRequest, config: OfflineConfig): Promis
   const webllm = await import('@mlc-ai/web-llm');
   const engine = await webllm.CreateMLCEngine(config.webgpuModel);
   const messages = [
-    { role: 'system' as const, content: buildSystemPrompt(request.personality, request.memoryContext) },
+    { role: 'system' as const, content: buildSystemPrompt(request.personality, request.memoryContext, request.adaptiveProfile) },
     ...request.messages.filter(message => message.role !== 'system').map(message => ({
       role: message.role,
       content: [message.content, ...(message.attachments ?? []).filter(attachment => attachment.content).map(attachment => `[Archivo adjunto: ${attachment.name}]\n${attachment.content}`)].filter(Boolean).join('\n\n'),

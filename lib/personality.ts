@@ -1,4 +1,4 @@
-import type { PersonalityStyle } from '@/types';
+import type { PersonalityStyle, AdaptiveProfile } from '@/types';
 
 export const YOSSELING_IDENTITY = {
   name: 'Yosseling',
@@ -19,9 +19,30 @@ const PERSONALITY_MODIFIERS: Record<PersonalityStyle, string> = {
   formal:      'Usas un lenguaje cuidado, elegante y muy respetuoso. Siempre cortés y estructurado.',
 };
 
+function buildAdaptiveModifier(profile: AdaptiveProfile | undefined): string {
+  if (!profile || profile.interactionCount < 3) return '';
+
+  const parts: string[] = [];
+  if (profile.responseStyle === 'concise') {
+    parts.push('El usuario prefiere respuestas breves y directas. Sé concisa.');
+  } else if (profile.responseStyle === 'detailed') {
+    parts.push('El usuario aprecia respuestas detalladas y explicativas. Amplía cuando sea útil.');
+  }
+  if (profile.languageFormality === 'formal') {
+    parts.push('El usuario tiende a comunicarse de forma formal. Ajusta tu registro en consecuencia.');
+  } else if (profile.languageFormality === 'casual') {
+    parts.push('El usuario prefiere un trato casual y relajado.');
+  }
+  if (profile.frequentTopics.length > 0) {
+    parts.push(`Temas frecuentes del usuario: ${profile.frequentTopics.slice(0, 5).join(', ')}.`);
+  }
+  return parts.length ? `\n\n━━ ADAPTACIÓN DETECTADA ━━\n${parts.join('\n')}` : '';
+}
+
 export function buildSystemPrompt(
   personality: PersonalityStyle = 'amigable',
-  memoryContext?: string
+  memoryContext?: string,
+  adaptiveProfile?: AdaptiveProfile,
 ): string {
   const modifier = PERSONALITY_MODIFIERS[personality] ?? PERSONALITY_MODIFIERS.amigable;
 
@@ -57,6 +78,9 @@ ${modifier}
 - Responde siempre en el idioma del usuario.
 - Sé concisa cuando la pregunta es simple; extensa cuando la pregunta lo requiere.
 - Usa Markdown cuando sea útil (código, listas, tablas) pero no en conversación casual.`;
+
+  const adaptive = buildAdaptiveModifier(adaptiveProfile);
+  if (adaptive) prompt += adaptive;
 
   if (memoryContext && memoryContext.trim()) {
     prompt += `\n\n━━ LO QUE RECUERDAS DEL USUARIO ━━\n${memoryContext}\n\nUsa esta información de forma natural para personalizar tus respuestas. No menciones explícitamente que tienes esta información guardada a menos que el usuario lo pregunte directamente.`;

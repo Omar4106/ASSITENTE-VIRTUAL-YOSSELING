@@ -13,9 +13,9 @@ import {
   clearAllMemory, loadSettings, saveSettings, DEFAULT_SETTINGS,
 } from '@/lib/db';
 import { getDefaultModel } from '@/lib/ai-config';
-import { buildMemoryContext, detectMemory, isDuplicate, createMemoryItem, exportMemory, parseMemoryImport } from '@/lib/memory';
+import { buildMemoryContext, detectMemory, isDuplicate, createMemoryItem, exportMemory, parseMemoryImport, updateAdaptiveProfile } from '@/lib/memory';
 import { sendThroughYosseling } from '@/lib/yosseling-engine';
-import { isImageGenerationRequest } from '@/lib/image-intent';
+import { isImageGenerationRequest, isOfflineModeIntent, isAffirmation } from '@/lib/image-intent';
 
 function genId() {
   return Math.random().toString(36).slice(2, 11) + Math.random().toString(36).slice(2, 11);
@@ -241,6 +241,7 @@ export const useAppStore = create<AppState>()(
             return;
           }
 
+          // Image generation works regardless of selected text model — route to /api/images
           const imageResponse = await fetch('/api/images', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -259,6 +260,63 @@ export const useAppStore = create<AppState>()(
             set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedImage : c), aiCenterData: s.aiCenterData ? { ...s.aiCenterData, status: 'success', providerUsed: 'openai' } : null }));
             await saveChat(savedImage);
           }
+          return;
+        }
+
+        // Offline mode intent detection with typo tolerance
+        if (isOfflineModeIntent(content)) {
+          if (get().settings.pendingOfflineInstall) {
+            // User previously asked — now confirming
+            if (isAffirmation(content)) {
+              get().updateSettings({ pendingOfflineInstall: false });
+              const confirmMessage = '¡Perfecto! Voy a instalar el motor local ahora mismo. Verás una barra de progreso mientras se descarga. Cuando termine, podré seguir ayudándote incluso sin internet.';
+              const confirmChat = get().chats.find(c => c.id === chatId);
+              if (confirmChat) {
+                const savedConfirm: Chat = {
+                  ...confirmChat,
+                  messages: confirmChat.messages.map(m => m.id === assistantMsg.id ? { ...m, content: confirmMessage, isStreaming: false } : m),
+                  updatedAt: Date.now(),
+                };
+                set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedConfirm : c) }));
+                await saveChat(savedConfirm);
+              }
+              // Trigger the offline download via event — OfflineManager listens
+              window.dispatchEvent(new CustomEvent('yosseling-install-offline'));
+              return;
+            }
+          } else {
+            // First time asking — propose the solution
+            get().updateSettings({ pendingOfflineInstall: true });
+            const proposal = '¡Sí! Puedo funcionar sin conexión. Si me confirmas, descargaré e instalaré un motor local ligero en tu dispositivo para cuando te quedes sin señal. ¿Deseas que lo instale ahora?';
+            const proposalChat = get().chats.find(c => c.id === chatId);
+            if (proposalChat) {
+              const savedProposal: Chat = {
+                ...proposalChat,
+                messages: proposalChat.messages.map(m => m.id === assistantMsg.id ? { ...m, content: proposal, isStreaming: false } : m),
+                updatedAt: Date.now(),
+              };
+              set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedProposal : c) }));
+              await saveChat(savedProposal);
+            }
+            return;
+          }
+        }
+
+        // If user says yes but there's a pending offline install confirmation
+        if (isAffirmation(content) && get().settings.pendingOfflineInstall) {
+          get().updateSettings({ pendingOfflineInstall: false });
+          const affirmMessage = '¡Perfecto! Voy a instalar el motor local ahora mismo. Verás una barra de progreso mientras se descarga. Cuando termine, podré seguir ayudándote incluso sin internet.';
+          const affirmChat = get().chats.find(c => c.id === chatId);
+          if (affirmChat) {
+            const savedAffirm: Chat = {
+              ...affirmChat,
+              messages: affirmChat.messages.map(m => m.id === assistantMsg.id ? { ...m, content: affirmMessage, isStreaming: false } : m),
+              updatedAt: Date.now(),
+            };
+            set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedAffirm : c) }));
+            await saveChat(savedAffirm);
+          }
+          window.dispatchEvent(new CustomEvent('yosseling-install-offline'));
           return;
         }
 
@@ -283,6 +341,7 @@ export const useAppStore = create<AppState>()(
           autoRoute: state.selectedProvider === 'auto',
           personality: get().settings.personality,
           memoryContext: memCtx,
+          adaptiveProfile: get().settings.adaptiveProfile,
           signal: controller.signal,
         });
 
@@ -367,7 +426,7 @@ export const useAppStore = create<AppState>()(
           },
         });
 
-        // Auto-detect memory
+        // Auto-detect memory + adaptive profile
         if (get().settings.memoryEnabled && get().settings.memoryAutoSave) {
           const detected = detectMemory(content, get().memory);
           for (const d of detected) {
@@ -382,6 +441,11 @@ export const useAppStore = create<AppState>()(
             setTimeout(() => get().clearMemoryIndicator(), 3000);
           }
         }
+
+        // Update adaptive profile based on user's message
+        const currentSettings = get().settings;
+        const updatedProfile = updateAdaptiveProfile(currentSettings.adaptiveProfile, content);
+        get().updateSettings({ adaptiveProfile: updatedProfile });
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== 'AbortError') {
           console.error('[Yosseling] sendMessage error:', err);

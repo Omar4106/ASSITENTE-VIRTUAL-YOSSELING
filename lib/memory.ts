@@ -1,4 +1,4 @@
-import type { MemoryItem, MemoryCategory, MemoryImportance, MemoryType } from '@/types';
+import type { MemoryItem, MemoryCategory, MemoryImportance, MemoryType, AdaptiveProfile } from '@/types';
 
 export interface DetectedMemory {
   title: string;
@@ -144,4 +144,66 @@ export function parseMemoryImport(json: string): Partial<MemoryItem>[] {
       typeof i === 'object' && i !== null && ('title' in i || 'content' in i)
     );
   } catch { return []; }
+}
+
+const TOPIC_KEYWORDS: [string, string[]][] = [
+  ['programación',    ['código', 'programar', 'python', 'javascript', 'typescript', 'react', 'bug', 'debug', 'api', 'función', 'clase']],
+  ['diseño',          ['diseño', 'ui', 'ux', 'css', 'figma', 'layout', 'color', 'tipografía']],
+  ['negocios',        ['empresa', 'marketing', 'ventas', 'cliente', 'estrategia', 'negocio', 'startu']],
+  ['educación',       ['estudiar', 'examen', 'tarea', 'universidad', 'curso', 'aprender', 'investigaci']],
+  ['salud',           ['salud', 'ejercicio', 'dieta', 'nutrici', 'médico', 'doctor']],
+  ['tecnología',      ['ia', 'tecnolog', 'software', 'hardware', 'data', 'cloud', 'server']],
+  ['creatividad',     ['música', 'arte', 'escribir', 'historia', 'poema', 'canción', 'dibujo']],
+  ['finanzas',        ['dinero', 'inversi', 'finanza', 'banco', 'presupuesto', 'ahorro']],
+];
+
+export function detectTopics(text: string): string[] {
+  const lower = text.toLowerCase();
+  return TOPIC_KEYWORDS
+    .filter(([, kws]) => kws.some(kw => lower.includes(kw)))
+    .map(([topic]) => topic);
+}
+
+export function detectFormality(text: string): 'casual' | 'formal' | 'mixed' {
+  const lower = text.toLowerCase();
+  const formalMarkers = ['estimado', 'le agradezco', 'podría', 'gustaría', 'agradecería'];
+  const casualMarkers = ['dale', 'che', 'bro', 'tío', 'oye', 'jaja', 'jaja', 'qué tal', 'va'];
+  const hasFormal = formalMarkers.some(m => lower.includes(m));
+  const hasCasual = casualMarkers.some(m => lower.includes(m));
+  if (hasFormal && hasCasual) return 'mixed';
+  if (hasFormal) return 'formal';
+  return 'casual';
+}
+
+export function detectResponseStyle(text: string): 'concise' | 'detailed' | 'balanced' {
+  const words = text.trim().split(/\s+/).length;
+  if (words < 8) return 'concise';
+  if (words > 50) return 'detailed';
+  return 'balanced';
+}
+
+export function updateAdaptiveProfile(
+  profile: AdaptiveProfile,
+  userText: string,
+): AdaptiveProfile {
+  const newTopics = detectTopics(userText);
+  const topicSet = new Set([...profile.frequentTopics, ...newTopics]);
+  const frequentTopics = [...topicSet].slice(0, 10);
+
+  const formality = detectFormality(userText);
+  const style = detectResponseStyle(userText);
+
+  const formalityScores: Record<string, number> = { casual: 0, formal: 0, mixed: 0 };
+  formalityScores[profile.languageFormality]++;
+  formalityScores[formality]++;
+  const bestFormality = (Object.entries(formalityScores).sort((a, b) => b[1] - a[1])[0][0]) as AdaptiveProfile['languageFormality'];
+
+  return {
+    ...profile,
+    frequentTopics,
+    languageFormality: bestFormality,
+    responseStyle: profile.interactionCount < 5 ? style : profile.responseStyle,
+    interactionCount: profile.interactionCount + 1,
+    lastUpdated: Date.now(),
+  };
 }
