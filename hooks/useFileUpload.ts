@@ -3,9 +3,8 @@
 import { useCallback, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { AttachedFile } from '@/types';
+import { MAX_FILE_SIZE, MAX_TEXT_LENGTH, isExecutableFile, escapeHtml } from '@/lib/security';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const MAX_TEXT_LENGTH = 120000;
 const BINARY_EXTENSIONS = new Set(['exe', 'dll', 'bin', 'msi', 'so', 'dylib', 'app']);
 const TEXT_EXTENSIONS = new Set([
   'txt', 'md', 'json', 'csv', 'ts', 'tsx', 'js', 'jsx', 'css', 'html', 'xml', 'yaml', 'yml',
@@ -117,14 +116,18 @@ export function useFileUpload() {
 
   const processFile = useCallback(async (file: File): Promise<AttachedFile | null> => {
     if (file.size > MAX_FILE_SIZE) {
-      setError(`${file.name} supera el límite de 10 MB.`);
+      setError(`${file.name} supera el límite de 10 MB. No se pudo adjuntar.`);
       return null;
     }
     setProcessingName(file.name);
     const extension = extensionOf(file.name);
     try {
       const extracted = await extractContent(file, extension);
-      const content = extracted.content?.slice(0, MAX_TEXT_LENGTH);
+      let content = extracted.content?.slice(0, MAX_TEXT_LENGTH);
+      // Treat executable/binary files strictly as static text — never execute
+      if (content && isExecutableFile(file.name)) {
+        content = `[Archivo binario tratado como texto estático — sin ejecución ni compilación]\n${escapeHtml(content)}`;
+      }
       const attachedFile: AttachedFile = {
         id: genId(), name: file.name, type: file.type || extension || 'unknown', size: file.size,
         content, dataUrl: extracted.dataUrl,

@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getEnvVar } from '@/lib/env';
+import { getImageRateLimit, getClientIp, sanitizeInput } from '@/lib/security';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting for image generation
+    const clientIp = getClientIp(request);
+    const rateLimit = getImageRateLimit(`image:${clientIp}`);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Has generado demasiadas imágenes. Espera un minuto e inténtalo de nuevo.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)) } },
+      );
+    }
+
     const body = await request.json() as { prompt?: unknown };
-    const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+    const prompt = typeof body.prompt === 'string' ? sanitizeInput(body.prompt.trim()) : '';
     if (!prompt || prompt.length > 4000) {
       return NextResponse.json({ error: 'Describe la imagen que quieres crear.' }, { status: 400 });
     }

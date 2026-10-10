@@ -11,6 +11,7 @@ import {
 } from '@/lib/ai-config';
 import { buildSystemPrompt } from '@/lib/personality';
 import { getEnvVar } from '@/lib/env';
+import { checkRateLimit, getClientIp, detectPromptInjection, PROMPT_INJECTION_RESPONSE, sanitizeInput } from '@/lib/security';
 import type { Provider, AdaptiveProfile } from '@/types';
 
 export const runtime = 'nodejs';
@@ -219,7 +220,31 @@ function wrapGeminiStream(geminiRes: Response): Response {
 
 export async function POST(req: NextRequest) {
   try {
+    // Rate limiting
+    const clientIp = getClientIp(req);
+    const rateLimit = checkRateLimit(`chat:${clientIp}`);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Has enviado demasiados mensajes. Espera un momento e inténtalo de nuevo.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)) } },
+      );
+    }
+
     const { messages, model, provider, autoRoute, personality, memoryContext, adaptiveProfile } = await req.json();
+
+    // Prompt injection detection on last user message
+    const lastUserMsgRaw = [...messages].reverse().find((m: ChatMessage) => m.role === 'user');
+    const lastUserText = typeof lastUserMsgRaw?.content === 'string' ? lastUserMsgRaw.content : '';
+    const injection = detectPromptInjection(lastUserText);
+    if (injection.detected) {
+      return streamText(PROMPT_INJECTION_RESPONSE);
+    }
+
+    // Sanitize user messages
+    const sanitizedMessages = messages.map((m: ChatMessage) => ({
+      ...m,
+      content: typeof m.content === 'string' ? sanitizeInput(m.content) : m.content,
+    }));
 
     // Build system prompt with Yosseling personality + memory + adaptive profile
     const systemPrompt = buildSystemPrompt(
@@ -227,13 +252,11 @@ export async function POST(req: NextRequest) {
       memoryContext,
       adaptiveProfile as AdaptiveProfile | undefined,
     );
-    const lastUserMsg = [...messages].reverse().find((m: ChatMessage) => m.role === 'user');
-    const lastUserText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
 
     // Build final messages with system prepended
     const apiMessages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
-      ...messages,
+      ...sanitizedMessages,
     ];
 
     // Determine provider chain
