@@ -188,7 +188,7 @@ export function updateAdaptiveProfile(
 ): AdaptiveProfile {
   const newTopics = detectTopics(userText);
   const topicSet = new Set([...profile.frequentTopics, ...newTopics]);
-  const frequentTopics = [...topicSet].slice(0, 10);
+  const frequentTopics = Array.from(topicSet).slice(0, 10);
 
   const formality = detectFormality(userText);
   const style = detectResponseStyle(userText);
