@@ -8,7 +8,7 @@ import {
   AI_SETTINGS, FALLBACK_ORDER, PROVIDER_CONFIG,
   getProviderDefaultModel, getProviderFromModel, getCodeRouteModel,
   shouldFallback, detectTaskType, TASK_ROUTING, COST_PER_1K,
-  MAX_IMAGES_PER_MESSAGE, VISION_MODEL,
+  MAX_IMAGES_PER_MESSAGE, getVisionModelForProvider,
 } from '@/lib/ai-config';
 import { buildSystemPrompt, buildFastSystemPrompt } from '@/lib/personality';
 import { getEnvVar } from '@/lib/env';
@@ -378,6 +378,11 @@ export async function POST(req: NextRequest) {
     const failureReasons: string[] = [];
     let fallbackUsed = false;
 
+    // Detect if any message contains image attachments
+    const hasImages = sanitizedMessages.some((m: ChatMessage) =>
+      m.attachments?.some(a => a.type.startsWith('image/') && a.dataUrl)
+    );
+
     for (const currentProvider of available) {
       let currentModel = model && getProviderFromModel(model) === currentProvider
         ? model
@@ -387,9 +392,9 @@ export async function POST(req: NextRequest) {
             ? INSTANT_GROQ_MODEL
             : getProviderDefaultModel(currentProvider);
 
-      // Route vision/OCR/analyze tasks to the vision model on groq
-      if ((detectedTask === 'image_read' || detectedTask === 'ocr' || detectedTask === 'analyze') && currentProvider === 'groq') {
-        currentModel = VISION_MODEL;
+      // Route vision/OCR/analyze tasks OR any message with image attachments to a vision model
+      if ((detectedTask === 'image_read' || detectedTask === 'ocr' || detectedTask === 'analyze' || hasImages) && currentProvider === 'groq') {
+        currentModel = getVisionModelForProvider(currentProvider);
       }
 
       const startTime = Date.now();

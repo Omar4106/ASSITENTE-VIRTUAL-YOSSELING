@@ -1,28 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getEnvVar } from '@/lib/env';
 import { checkRateLimit, getClientIp, sanitizeInput } from '@/lib/security';
-import { VISION_MODEL, STT_MODEL } from '@/lib/ai-config';
+import { STT_MODEL, getVisionModelForProvider } from '@/lib/ai-config';
+import type { Provider } from '@/types';
 
 export const runtime = 'nodejs';
 
 const COBALT_INSTANCES = [
   'https://api.cobalt.tools/api/json',
-  'https://cobalt-api.kwippy.com/api/json',
   'https://co.wuk.sh/api/json',
+  'https://cobalt-api.kwippy.com/api/json',
 ];
 
-const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const RAPIDAPI_ENDPOINT = 'https://ytstream-download-and-search.p.rapidapi.com/api/ytdl/v1/download';
 
-const API_HEADERS: Record<string, string> = {
-  'Content-Type': 'application/json',
-  'Accept': 'application/json',
-  'User-Agent': BROWSER_UA,
-  'Origin': 'https://yosseling.ai',
-  'Referer': 'https://yosseling.ai/',
-};
+const BROWSER_UA_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const BROWSER_UA_MOBILE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1';
+
+function apiHeaders(): Record<string, string> {
+  const ua = Math.random() > 0.5 ? BROWSER_UA_DESKTOP : BROWSER_UA_MOBILE;
+  return {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'User-Agent': ua,
+    'Origin': 'https://yosseling.ai',
+    'Referer': 'https://yosseling.ai/',
+  };
+}
 
 const FETCH_HEADERS: Record<string, string> = {
-  'User-Agent': BROWSER_UA,
+  'User-Agent': BROWSER_UA_DESKTOP,
   'Accept': '*/*',
   'Accept-Language': 'en-US,en;q=0.9',
 };
@@ -83,32 +90,44 @@ async function resolveShortenedUrl(url: string): Promise<string> {
 }
 
 async function extractVideoUrl(url: string): Promise<string | null> {
+  const cobaltKey = getEnvVar('COBALT_API_KEY');
   const cobaltBody = { url, videoQuality: '720', downloadMode: 'auto' };
 
   for (const endpoint of COBALT_INSTANCES) {
     try {
+      const headers = apiHeaders();
+      if (cobaltKey) headers['Authorization'] = `Bearer ${cobaltKey}`;
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: API_HEADERS,
+        headers,
         body: JSON.stringify(cobaltBody),
         signal: AbortSignal.timeout(20000),
       });
-
-      if (!res.ok) {
-        console.error(`[Analyze] Cobalt ${endpoint} returned ${res.status}`);
-        continue;
-      }
-
+      if (!res.ok) { console.error(`[Analyze] Cobalt ${endpoint} returned ${res.status}`); continue; }
       const data = await res.json() as CobaltResponse;
-      if (data.status === 'error' || !data.url) {
-        console.error(`[Analyze] Cobalt ${endpoint} status=${data.status}`);
-        continue;
-      }
-
+      if (data.status === 'error' || !data.url) { console.error(`[Analyze] Cobalt ${endpoint} status=${data.status}`); continue; }
       console.log(`[Analyze] Cobalt ${endpoint} succeeded`);
       return data.url;
     } catch (err) {
       console.error(`[Analyze] Cobalt ${endpoint} failed:`, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // Fallback: RapidAPI if key configured
+  const rapidKey = getEnvVar('RAPIDAPI_KEY');
+  if (rapidKey) {
+    try {
+      const res = await fetch(`${RAPIDAPI_ENDPOINT}?url=${encodeURIComponent(url)}`, {
+        method: 'GET',
+        headers: { ...apiHeaders(), 'X-RapidAPI-Key': rapidKey, 'X-RapidAPI-Host': 'ytstream-download-and-search.p.rapidapi.com' },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (res.ok) {
+        const data = await res.json() as { url?: string };
+        if (data.url) { console.log('[Analyze] RapidAPI succeeded'); return data.url; }
+      }
+    } catch (err) {
+      console.error('[Analyze] RapidAPI failed:', err instanceof Error ? err.message : String(err));
     }
   }
   return null;
@@ -162,7 +181,7 @@ async function analyzeWithVision(question: string, transcription: string, groqKe
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: VISION_MODEL,
+        model: getVisionModelForProvider('groq' as Exclude<Provider, 'auto'>),
         messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
         max_tokens: 2048,
         temperature: 0.7,

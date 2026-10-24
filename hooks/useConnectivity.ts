@@ -9,10 +9,6 @@ interface ConnectivityState {
   pinging: boolean;
 }
 
-/**
- * Tracks browser online/offline state and performs a non-blocking background
- * ping to Ollama (localhost:11434) to check local engine availability.
- */
 export function useConnectivity(): ConnectivityState {
   const [online, setOnline] = useState(true);
   const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null);
@@ -20,28 +16,29 @@ export function useConnectivity(): ConnectivityState {
 
   const pingOllama = useCallback(async () => {
     const config = getOfflineConfig();
-    const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const targetsLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(config.ollamaUrl);
+    const url = config.ollamaUrl.replace(/\/$/, '');
+    const targetsLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(url);
 
-    if (isMobile && targetsLocalhost) {
-      setOllamaAvailable(false);
+    if (targetsLocalhost) {
+      setPinging(true);
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(`${url}/api/tags`, {
+          mode: 'cors',
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        setOllamaAvailable(res.ok);
+      } catch {
+        setOllamaAvailable(false);
+      } finally {
+        setPinging(false);
+      }
       return;
     }
 
-    setPinging(true);
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 1500);
-      const res = await fetch(`${config.ollamaUrl.replace(/\/$/, '')}/api/version`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      setOllamaAvailable(res.ok);
-    } catch {
-      setOllamaAvailable(false);
-    } finally {
-      setPinging(false);
-    }
+    setOllamaAvailable(false);
   }, []);
 
   useEffect(() => {

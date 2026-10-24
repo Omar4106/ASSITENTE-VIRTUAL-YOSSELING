@@ -23,7 +23,19 @@ export const TTS_MODEL = 'canopylabs/orpheus-v1-english';
 export const TTS_VOICE = 'hannah';
 export const STT_MODEL = 'whisper-large-v3-turbo';
 export const MAX_IMAGES_PER_MESSAGE = 3;
-export const VISION_MODEL = 'qwen/qwen3-vl-plus-27b';
+export const VISION_MODEL = 'llama-3.2-11b-vision-preview';
+
+export const VISION_MODELS: Record<Exclude<Provider, 'auto'>, string> = {
+  groq: 'llama-3.2-11b-vision-preview',
+  gemini: 'gemini-2.5-flash',
+  openrouter: 'google/gemini-2.5-pro-preview',
+  openai: 'gpt-4o-mini',
+  cerebras: 'llama-4-scout-17b-16e-instruct',
+};
+
+export function getVisionModelForProvider(provider: Exclude<Provider, 'auto'>): string {
+  return VISION_MODELS[provider] ?? getProviderDefaultModel(provider);
+}
 
 // ============================================================
 // FALLBACK CHAIN
@@ -109,7 +121,7 @@ export const PROVIDER_CONFIG: Record<Exclude<Provider, 'auto'>, ProviderConfigTy
       { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', description: 'Mixture of experts', contextWindow: 32768 },
       { id: 'gemma2-9b-it', name: 'Gemma 2 9B', description: 'Google open model', contextWindow: 8192 },
       { id: 'qwen-qwq-32b', name: 'Qwen QwQ 32B', description: 'Reasoning model', contextWindow: 32768 },
-      { id: 'qwen/qwen3-vl-plus-27b', name: 'Qwen3 VL 27B', description: 'Visión multimodal — análisis de imágenes, OCR', contextWindow: 32768, supportsVision: true },
+      { id: 'llama-3.2-11b-vision-preview', name: 'Llama 3.2 11B Vision', description: 'Visión multimodal — análisis de imágenes, OCR', contextWindow: 32768, supportsVision: true },
     ],
   },
   gemini: {
