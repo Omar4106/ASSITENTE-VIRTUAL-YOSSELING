@@ -6,11 +6,6 @@ const HF_FLUX_ENDPOINT =
 const HF_SDXL_ENDPOINT =
   'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0';
 
-interface HFPollResult {
-  ok: boolean;
-  buffer: ArrayBuffer | null;
-}
-
 async function pollHFModel(
   endpoint: string,
   apiKey: string,
@@ -25,16 +20,13 @@ async function pollHFModel(
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: { width: 1024, height: 1024, num_inference_steps: 4 },
-        }),
+        body: JSON.stringify({ inputs: prompt }),
         signal: AbortSignal.timeout(45000),
       });
 
       const contentType = res.headers.get('content-type') ?? '';
 
-      // Hugging Face returns the image directly as binary
+      // Hugging Face returns the image directly as binary (no watermark)
       if (res.ok && contentType.includes('image/')) {
         const buffer = await res.arrayBuffer();
         if (buffer.byteLength > 0) {
