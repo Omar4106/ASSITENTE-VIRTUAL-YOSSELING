@@ -90,30 +90,7 @@ async function resolveShortenedUrl(url: string): Promise<string> {
 }
 
 async function extractVideoUrl(url: string): Promise<string | null> {
-  const cobaltKey = getEnvVar('COBALT_API_KEY');
-  const cobaltBody = { url, videoQuality: '720', downloadMode: 'auto' };
-
-  for (const endpoint of COBALT_INSTANCES) {
-    try {
-      const headers = apiHeaders();
-      if (cobaltKey) headers['Authorization'] = `Bearer ${cobaltKey}`;
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(cobaltBody),
-        signal: AbortSignal.timeout(20000),
-      });
-      if (!res.ok) { console.error(`[Analyze] Cobalt ${endpoint} returned ${res.status}`); continue; }
-      const data = await res.json() as CobaltResponse;
-      if (data.status === 'error' || !data.url) { console.error(`[Analyze] Cobalt ${endpoint} status=${data.status}`); continue; }
-      console.log(`[Analyze] Cobalt ${endpoint} succeeded`);
-      return data.url;
-    } catch (err) {
-      console.error(`[Analyze] Cobalt ${endpoint} failed:`, err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  // Fallback: RapidAPI if key configured
+  // 1. RapidAPI (if key configured — highest priority)
   const rapidKey = getEnvVar('RAPIDAPI_KEY');
   if (rapidKey) {
     try {
@@ -130,6 +107,31 @@ async function extractVideoUrl(url: string): Promise<string | null> {
       console.error('[Analyze] RapidAPI failed:', err instanceof Error ? err.message : String(err));
     }
   }
+
+  // 2. Cobalt instances (with optional API key, then public mirrors)
+  const cobaltKey = getEnvVar('COBALT_API_KEY');
+  const cobaltBody = { url, videoQuality: '720', downloadMode: 'auto' };
+
+  for (const endpoint of COBALT_INSTANCES) {
+    try {
+      const headers = apiHeaders();
+      if (cobaltKey) headers['Authorization'] = `ApiKey ${cobaltKey}`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(cobaltBody),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) { console.error(`[Analyze] Cobalt ${endpoint} returned ${res.status}`); continue; }
+      const data = await res.json() as CobaltResponse;
+      if (data.status === 'error' || !data.url) { console.error(`[Analyze] Cobalt ${endpoint} status=${data.status}`); continue; }
+      console.log(`[Analyze] Cobalt ${endpoint} succeeded`);
+      return data.url;
+    } catch (err) {
+      console.error(`[Analyze] Cobalt ${endpoint} failed:`, err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return null;
 }
 

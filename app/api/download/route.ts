@@ -123,7 +123,7 @@ async function tryCobaltInstances(url: string, format: 'mp4' | 'mp3'): Promise<E
   for (const endpoint of COBALT_INSTANCES) {
     try {
       const headers = apiHeaders();
-      if (cobaltKey) headers['Authorization'] = `Bearer ${cobaltKey}`;
+      if (cobaltKey) headers['Authorization'] = `ApiKey ${cobaltKey}`;
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -213,13 +213,13 @@ export async function POST(req: NextRequest) {
     const cleanedUrl = stripTrackingParams(url);
     const resolvedUrl = await resolveShortenedUrl(cleanedUrl);
 
-    // 1. Cobalt instances (with optional API key)
-    const cobaltResult = await tryCobaltInstances(resolvedUrl, format);
-    if (cobaltResult) return NextResponse.json({ url: cobaltResult.directUrl, filename: cobaltResult.filename, format }, { status: 200 });
-
-    // 2. RapidAPI (if key configured)
+    // 1. RapidAPI (if key configured — highest priority)
     const rapidResult = await tryRapidApi(resolvedUrl, format);
     if (rapidResult) return NextResponse.json({ url: rapidResult.directUrl, filename: rapidResult.filename, format }, { status: 200 });
+
+    // 2. Cobalt instances (with optional API key, then public mirrors)
+    const cobaltResult = await tryCobaltInstances(resolvedUrl, format);
+    if (cobaltResult) return NextResponse.json({ url: cobaltResult.directUrl, filename: cobaltResult.filename, format }, { status: 200 });
 
     // 3. TikWM for TikTok URLs
     const tikwmResult = await tryTikwm(resolvedUrl, format);
