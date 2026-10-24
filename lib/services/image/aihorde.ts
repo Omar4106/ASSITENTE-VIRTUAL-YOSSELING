@@ -19,15 +19,15 @@ async function pollHordeStatus(
   jobId: string,
   apiKey: string,
 ): Promise<ImageResult | null> {
-  const maxAttempts = 30;
+  const maxAttempts = 4;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    await new Promise((r) => setTimeout(r, 5000));
+    await new Promise((r) => setTimeout(r, 2500));
 
     try {
       const res = await fetch(`${AI_HORDE_STATUS}/${jobId}`, {
         headers: { 'apikey': apiKey },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!res.ok) continue;

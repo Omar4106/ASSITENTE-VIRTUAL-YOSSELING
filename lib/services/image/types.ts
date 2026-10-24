@@ -23,7 +23,7 @@ export function enhancePrompt(userPrompt: string): string {
  */
 export function tryPollinations(prompt: string): string {
   const seed = Math.floor(Math.random() * 1000000);
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&model=flux`;
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&seed=${seed}&nologo=true&nofeed=true&model=flux`;
 }
 
 /**

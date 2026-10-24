@@ -6,8 +6,8 @@ import { tryAIHorde } from '@/lib/services/image/aihorde';
 
 export const runtime = 'nodejs';
 
-const HF_TIMEOUT_MS = 5000;
-const HORDE_TIMEOUT_MS = 5000;
+const HF_TIMEOUT_MS = 15000;
+const HORDE_TIMEOUT_MS = 10000;
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,13 +28,13 @@ export async function POST(request: NextRequest) {
 
     const enhanced = enhancePrompt(prompt);
 
-    // Level 1: Hugging Face Inference (5s timeout — FLUX.1-schnell, then SDXL)
+    // Priority 1: Hugging Face Inference (15s timeout — FLUX.1-schnell, then SDXL)
     const hfResult = await withTimeout(tryHuggingFace(enhanced), HF_TIMEOUT_MS);
     if (hfResult) {
       return NextResponse.json({ url: hfResult.url, provider: hfResult.provider });
     }
 
-    // Level 2: AI Horde (5s timeout — async generation with polling)
+    // Priority 2: AI Horde (10s timeout — async generation with polling)
     const hordeResult = await withTimeout(tryAIHorde(enhanced), HORDE_TIMEOUT_MS);
     if (hordeResult) {
       return NextResponse.json({ url: hordeResult.url, provider: hordeResult.provider });
