@@ -48,9 +48,9 @@ const BROWSER_HEADERS: Record<string, string> = {
   'User-Agent': BROWSER_UA_DESKTOP,
 };
 
-const SHORTENER_DOMAINS = /vt\.tiktok\.com|vm\.tiktok\.com|instagr\.am|fb\.watch|fb\.gg|youtu\.be|facebook\.com\/share/i;
+const SHORTENER_DOMAINS = /vt\.tiktok\.com|vm\.tiktok\.com|instagr\.am|fb\.watch|fb\.gg|youtu\.be|facebook\.com\/share|pin\.it|redd\.it/i;
 
-const SOCIAL_URL_PATTERN = /^https?:\/\/(www\.)?(m\.)?(vt\.tiktok\.com|vm\.tiktok\.com|tiktok\.com|instagram\.com\/(reel|p|reels|tv)\/|instagr\.am|reel\.instagram\.com|facebook\.com(\/share\/(v|r|reel)\/|\/share|\/watch|\/reel\/|\/videos\/)?|fb\.watch|fb\.gg|fb\.com|youtu\.be|youtube\.com\/(watch|shorts|embed))/i;
+const SOCIAL_URL_PATTERN = /^https?:\/\/(www\.)?(m\.)?(vt\.tiktok\.com|vm\.tiktok\.com|tiktok\.com|instagram\.com\/(reel|p|reels|tv)\/|instagr\.am|reel\.instagram\.com|facebook\.com(\/share\/(v|r|reel)\/|\/share|\/watch|\/reel\/|\/videos\/)?|fb\.watch|fb\.gg|fb\.com|youtu\.be|youtube\.com\/(watch|shorts|embed)|twitter\.com|x\.com|pinterest\.com|pin\.it|reddit\.com|redd\.it)/i;
 
 interface ExtractResult { directUrl: string; filename: string; }
 
@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
 
   url = sanitizeInput(url).trim();
   if (!url || !SOCIAL_URL_PATTERN.test(url)) {
-    return NextResponse.json({ error: 'Enlace no válido. Solo se admiten enlaces públicos de TikTok, Instagram, Facebook y YouTube.' }, { status: 400 });
+    return NextResponse.json({ error: 'Enlace no válido. Solo se admiten enlaces públicos de TikTok, Instagram, Facebook, YouTube, Twitter/X, Pinterest y Reddit.' }, { status: 400 });
   }
 
   try {

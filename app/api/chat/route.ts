@@ -19,7 +19,7 @@ export const runtime = 'nodejs';
 
 const INSTANT_GROQ_MODEL = 'llama-3.1-8b-instant';
 
-const MEDIA_LINK_PATTERN = /^https?:\/\/(www\.|m\.)?(youtube\.com\/(watch|shorts|embed)|youtu\.be|tiktok\.com|(vt|vm)\.tiktok\.com|instagram\.com\/(reel|p|reels|tv)|instagr\.am|reel\.instagram\.com|facebook\.com(\/share|\/watch|\/reel|\/videos)?|fb\.watch|fb\.gg|fb\.com)/i;
+const MEDIA_LINK_PATTERN = /^https?:\/\/(www\.|m\.)?(youtube\.com\/(watch|shorts|embed)|youtu\.be|tiktok\.com|(vt|vm)\.tiktok\.com|instagram\.com\/(reel|p|reels|tv)|instagr\.am|reel\.instagram\.com|facebook\.com(\/share|\/watch|\/reel|\/videos)?|fb\.watch|fb\.gg|fb\.com|twitter\.com|x\.com|pinterest\.com|pin\.it|reddit\.com|redd\.it)/i;
 
 const MEDIA_LINK_RESPONSE = 'He detectado el enlace de medios. Puedes usar los botones de la tarjeta arriba para descargar o procesar el contenido.';
 

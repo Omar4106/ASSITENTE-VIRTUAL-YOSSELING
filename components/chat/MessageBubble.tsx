@@ -147,7 +147,7 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
 
   const socialUrl = isUser && message.content
     ? (() => {
-        const SOCIAL_URL_REGEX = /https?:\/\/(?:www\.|m\.)?(?:vt\.tiktok\.com|vm\.tiktok\.com|tiktok\.com|instagram\.com\/(?:reel|p|reels|tv)\/|instagr\.am|reel\.instagram\.com|facebook\.com\/(?:share\/v\/|share\/r\/|share\/|watch\/?|reel\/|videos\/)?|fb\.watch|fb\.gg|youtu\.be|youtube\.com\/(?:watch|shorts|embed))\S+/i;
+        const SOCIAL_URL_REGEX = /https?:\/\/(?:www\.|m\.)?(?:vt\.tiktok\.com|vm\.tiktok\.com|tiktok\.com|instagram\.com\/(?:reel|p|reels|tv)\/|instagr\.am|reel\.instagram\.com|facebook\.com\/(?:share\/v\/|share\/r\/|share\/|watch\/?|reel\/|videos\/)?|fb\.watch|fb\.gg|youtu\.be|youtube\.com\/(?:watch|shorts|embed)|twitter\.com|x\.com|pinterest\.com|pin\.it|reddit\.com|redd\.it)\S+/i;
         return message.content.match(SOCIAL_URL_REGEX)?.[0] ?? null;
       })()
     : null;
