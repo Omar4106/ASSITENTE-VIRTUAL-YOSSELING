@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getClientIp, getImageRateLimit, sanitizeInput } from '@/lib/security';
-import { enhancePrompt, type ImageResult } from '@/lib/services/image/types';
+import { enhancePrompt, tryPollinations, withTimeout, type ImageResult } from '@/lib/services/image/types';
 import { tryHuggingFace } from '@/lib/services/image/huggingface';
 import { tryAIHorde } from '@/lib/services/image/aihorde';
 
 export const runtime = 'nodejs';
+
+const HF_TIMEOUT_MS = 5000;
+const HORDE_TIMEOUT_MS = 5000;
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,26 +27,28 @@ export async function POST(request: NextRequest) {
     }
 
     const enhanced = enhancePrompt(prompt);
-    let result: ImageResult | null = null;
 
-    // Level 1: Hugging Face Inference (FLUX.1-schnell, then SDXL)
-    result = await tryHuggingFace(enhanced);
-    if (result) {
-      return NextResponse.json({ url: result.url, provider: result.provider });
+    // Level 1: Hugging Face Inference (5s timeout — FLUX.1-schnell, then SDXL)
+    const hfResult = await withTimeout(tryHuggingFace(enhanced), HF_TIMEOUT_MS);
+    if (hfResult) {
+      return NextResponse.json({ url: hfResult.url, provider: hfResult.provider });
     }
 
-    // Level 2: AI Horde (async generation with polling)
-    result = await tryAIHorde(enhanced);
-    if (result) {
-      return NextResponse.json({ url: result.url, provider: result.provider });
+    // Level 2: AI Horde (5s timeout — async generation with polling)
+    const hordeResult = await withTimeout(tryAIHorde(enhanced), HORDE_TIMEOUT_MS);
+    if (hordeResult) {
+      return NextResponse.json({ url: hordeResult.url, provider: hordeResult.provider });
     }
 
-    return NextResponse.json(
-      { error: 'No pude crear la imagen en este momento. Todos los motores están ocupados.' },
-      { status: 503 },
-    );
+    // Level 3: Pollinations — guaranteed public fallback, always returns a URL
+    const pollinationsUrl = tryPollinations(prompt);
+    return NextResponse.json({ url: pollinationsUrl, provider: 'pollinations' });
   } catch (error) {
     console.error('[Yosseling] Generate-image route failed:', error);
-    return NextResponse.json({ error: 'No pude crear la imagen en este momento.' }, { status: 500 });
+    // Even on unexpected errors, return Pollinations so the UI always renders
+    const body = await request.clone().json().catch(() => ({})) as { prompt?: string };
+    const fallbackPrompt = typeof body.prompt === 'string' ? body.prompt : 'abstract art';
+    const pollinationsUrl = tryPollinations(fallbackPrompt);
+    return NextResponse.json({ url: pollinationsUrl, provider: 'pollinations' });
   }
 }

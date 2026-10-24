@@ -11,9 +11,9 @@ export type { Provider };
 // ============================================================
 export const AI_SETTINGS = {
   temperature: 0.7,
-  maxTokens: 4096,
+  maxTokens: 8192,
   stream: true,
-  timeout: 60000,
+  timeout: 120000,
 } as const;
 
 // ============================================================

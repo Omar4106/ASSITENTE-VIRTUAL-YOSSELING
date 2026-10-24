@@ -56,6 +56,23 @@ function stripTrackingParams(url: string): string {
 }
 
 /**
+ * Normalizes shortened YouTube URLs (youtu.be/VIDEO_ID) into the canonical
+ * youtube.com/watch?v=VIDEO_ID form that extraction APIs expect.
+ */
+function normalizeYouTubeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'youtu.be') {
+      const videoId = parsed.pathname.slice(1);
+      if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
+    }
+    return url;
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Follows redirects to expand shortened URLs (youtu.be, pin.it, fb.watch, etc.)
  * into their full canonical form before sending to extraction services.
  * Uses `redirect: 'follow'` to resolve the entire chain in one request,
@@ -161,14 +178,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const cleanedUrl = stripTrackingParams(url);
+    const cleanedUrl = normalizeYouTubeUrl(stripTrackingParams(url));
     const resolvedUrl = await resolveShortenedUrl(cleanedUrl);
 
     // 1. RapidAPI (if key configured — highest priority)
     const rapidResult = await tryRapidApi(resolvedUrl, format);
     if (rapidResult)
       return NextResponse.json(
-        { url: rapidResult.directUrl, filename: rapidResult.filename, format },
+        { url: rapidResult.directUrl, filename: rapidResult.filename, format, success: true },
         { status: 200 },
       );
 
@@ -176,7 +193,7 @@ export async function POST(req: NextRequest) {
     const cobaltResult = await tryCobaltInstances(resolvedUrl, format);
     if (cobaltResult)
       return NextResponse.json(
-        { url: cobaltResult.directUrl, filename: cobaltResult.filename, format },
+        { url: cobaltResult.directUrl, filename: cobaltResult.filename, format, success: true },
         { status: 200 },
       );
 
@@ -184,19 +201,19 @@ export async function POST(req: NextRequest) {
     const tikwmResult = await tryTikwm(resolvedUrl, format);
     if (tikwmResult)
       return NextResponse.json(
-        { url: tikwmResult.directUrl, filename: tikwmResult.filename, format },
+        { url: tikwmResult.directUrl, filename: tikwmResult.filename, format, success: true },
         { status: 200 },
       );
 
     return NextResponse.json(
-      { error: 'No pude procesar este enlace. Asegúrate de que la publicación sea pública e inténtalo de nuevo.' },
-      { status: 422 },
+      { success: false, error: 'No pude procesar este enlace. Asegúrate de que la publicación sea pública e inténtalo de nuevo.' },
+      { status: 200 },
     );
   } catch (err) {
     console.error('[Yosseling Download] Unexpected error:', err);
     return NextResponse.json(
-      { error: 'No pude procesar este enlace. Asegúrate de que la publicación sea pública e inténtalo de nuevo.' },
-      { status: 500 },
+      { success: false, error: 'La fuente del video está bloqueando el acceso desde el servidor. Intenta con otro enlace.' },
+      { status: 200 },
     );
   }
 }
