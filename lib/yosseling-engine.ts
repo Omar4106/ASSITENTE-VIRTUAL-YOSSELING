@@ -109,6 +109,7 @@ async function callOllama(request: EngineRequest, config: OfflineConfig): Promis
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: config.ollamaModel, prompt, stream: true }),
+    mode: 'cors',
     signal: request.signal,
   });
   if (!response.ok) throw new Error(`El motor local respondió ${response.status}`);

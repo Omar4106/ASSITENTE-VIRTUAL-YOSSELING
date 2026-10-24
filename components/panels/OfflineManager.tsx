@@ -73,13 +73,25 @@ export function OfflineManager() {
           <div className="flex gap-2">
             <input
               value={config.ollamaUrl}
-              onChange={e => { update({ ollamaUrl: e.target.value, configured: false }); setOllamaReady(null); }}
+              onChange={e => {
+                let val = e.target.value;
+                if (val && !/^https?:\/\//i.test(val)) val = `http://${val}`;
+                update({ ollamaUrl: val, configured: false });
+                setOllamaReady(null);
+              }}
+              onBlur={e => {
+                let val = e.target.value.trim();
+                if (val && !/^https?:\/\//i.test(val)) val = `http://${val}`;
+                if (val && !/:\d+$/.test(val) && /localhost|127\.0\.0\.1/i.test(val)) val = `${val}:11434`;
+                update({ ollamaUrl: val, configured: false });
+              }}
               className="min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-white/5 px-3 py-2 text-xs text-white outline-none focus:border-cyan-400/50"
               placeholder="http://localhost:11434"
               spellCheck={false}
               autoComplete="off"
               autoCapitalize="off"
               autoCorrect="off"
+              inputMode="url"
             />
             <button disabled={busy} onClick={testOllama} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-2 text-[11px] text-white hover:bg-white/10 disabled:opacity-40">
               <RefreshCw size={12} className={busy ? 'animate-spin' : ''} /> Probar
@@ -105,15 +117,16 @@ export function OfflineManager() {
               className="flex w-full items-center gap-1.5 px-3 py-2 text-[11px] text-amber-200 hover:bg-amber-500/10 transition-colors"
             >
               <Info size={12} className="shrink-0" />
-              <span>Asegúrate de configurar OLLAMA_ORIGINS='*' en tu PC para permitir conexiones locales.</span>
+              <span>Asegúrate de ejecutar Ollama con permisos CORS. Ver instrucciones abajo.</span>
               <ChevronDown size={12} className={`shrink-0 ml-auto transition-transform ${corsHelpOpen ? 'rotate-180' : ''}`} />
             </button>
             {corsHelpOpen && (
-              <div className="px-3 pb-3 pt-1 text-[10px] leading-relaxed text-amber-200/80 space-y-1.5">
-                <p>1. Abre una terminal o el panel de variables de entorno de tu PC.</p>
-                <p>2. Añade la variable: <code className="rounded bg-black/30 px-1 text-amber-100">OLLAMA_ORIGINS=*</code></p>
-                <p>3. Reinicia el servicio de Ollama para que aplique el cambio.</p>
-                <p>4. Vuelve a pulsar «Probar» para verificar la conexión.</p>
+              <div className="px-3 pb-3 pt-1 text-[10px] leading-relaxed text-amber-200/80 space-y-2">
+                <p className="font-semibold text-amber-100">Para usar Ollama local desde la web/PWA:</p>
+                <p>Abre una terminal de Windows (PowerShell) en tu PC y ejecuta:</p>
+                <pre className="rounded bg-black/40 px-2 py-1.5 text-amber-100 overflow-x-auto"><code>$env:OLLAMA_ORIGINS="*" ; ollama serve</code></pre>
+                <p>Esto permite que el navegador se conecte a Ollama. Mantén la terminal abierta mientras uses Yosseling en modo local.</p>
+                <p className="text-[9px] text-amber-200/60">Alternativa (CMD): <code className="rounded bg-black/30 px-1">set OLLAMA_ORIGINS=* &amp;&amp; ollama serve</code></p>
               </div>
             )}
           </div>
@@ -131,7 +144,10 @@ export function OfflineManager() {
           <span>{message}</span>
         </div>
       )}
-      <div className="flex items-center gap-2 text-[10px] text-[#B3B3B3]/70"><Cloud size={12} /> Al perder internet, Yosseling cambiará automáticamente a Ollama si está configurado.</div>
+      <div className="rounded-lg border border-cyan-500/15 bg-cyan-500/[0.04] px-3 py-2 text-[10px] leading-relaxed text-cyan-200/80">
+        <span className="font-semibold text-cyan-100">Importante:</span> Para usar Ollama desde la web/PWA, ejecuta en tu terminal de Windows (PowerShell):
+        <code className="block mt-1 rounded bg-black/30 px-2 py-1 text-cyan-100">$env:OLLAMA_ORIGINS=&quot;*&quot; ; ollama serve</code>
+      </div>
     </section>
   );
 }

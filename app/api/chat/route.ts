@@ -19,6 +19,20 @@ export const runtime = 'nodejs';
 
 const INSTANT_GROQ_MODEL = 'llama-3.1-8b-instant';
 
+const MEDIA_LINK_PATTERN = /^https?:\/\/(www\.|m\.)?(youtube\.com\/(watch|shorts|embed)|youtu\.be|tiktok\.com|(vt|vm)\.tiktok\.com|instagram\.com\/(reel|p|reels|tv)|instagr\.am|reel\.instagram\.com|facebook\.com(\/share|\/watch|\/reel|\/videos)?|fb\.watch|fb\.gg|fb\.com)/i;
+
+const MEDIA_LINK_RESPONSE = 'He detectado el enlace de medios. Puedes usar los botones de la tarjeta arriba para descargar o procesar el contenido.';
+
+function isMediaLinkOnly(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const urlMatch = trimmed.match(/https?:\/\/\S+/);
+  if (!urlMatch) return false;
+  const url = urlMatch[0];
+  const remaining = trimmed.replace(url, '').trim();
+  return MEDIA_LINK_PATTERN.test(url) && remaining.length < 20;
+}
+
 const INTERNAL_TAG_NAMES = ['function_calls', 'invoke', 'function', 'tool_call', 'tool_result', 'tool', 'antml'];
 const INTERNAL_TAG_RE = new RegExp(`<(?:${INTERNAL_TAG_NAMES.join('|')})\\b[^>]*>[\\s\\S]*?</(?:${INTERNAL_TAG_NAMES.join('|')})>`, 'gi');
 const INTERNAL_TAG_SELF_RE = new RegExp(`</?(?:${INTERNAL_TAG_NAMES.join('|')})\\b[^>]*>`, 'gi');
@@ -323,6 +337,12 @@ export async function POST(req: NextRequest) {
     // Task detection — lightweight regex, no blocking I/O
     const lastUserMsgRaw = [...messages].reverse().find((m: ChatMessage) => m.role === 'user');
     const lastUserText = typeof lastUserMsgRaw?.content === 'string' ? lastUserMsgRaw.content : '';
+
+    // Media-only link shortcut: return canned confirmation without calling any provider
+    if (isMediaLinkOnly(lastUserText)) {
+      return streamText(MEDIA_LINK_RESPONSE);
+    }
+
     const detectedTask: TaskType = detectTaskType(lastUserText);
     const isSimpleChat = detectedTask === 'chat';
 
