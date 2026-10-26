@@ -78,7 +78,7 @@ export default function Home() {
               <div
                 className="h-full"
                 style={{
-                  background: 'rgba(8,6,18,0.78)',
+                  background: 'rgba(8,6,18,0.97)',
                   backdropFilter: 'blur(24px)',
                   WebkitBackdropFilter: 'blur(24px)',
                   borderRight: '1px solid rgba(124,58,237,0.12)',
@@ -135,7 +135,7 @@ export default function Home() {
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                 className="md:hidden fixed left-0 top-0 bottom-0 z-50 w-[280px] overflow-hidden flex flex-col"
                 style={{
-                  background: 'rgba(8,6,18,0.92)',
+                  background: 'rgba(8,6,18,0.98)',
                   backdropFilter: 'blur(24px)',
                   WebkitBackdropFilter: 'blur(24px)',
                   borderRight: '1px solid rgba(124,58,237,0.15)',

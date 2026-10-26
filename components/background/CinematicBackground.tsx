@@ -1,21 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { NebulaCanvas } from './NebulaCanvas';
 import { ParticleField } from './ParticleField';
-import { YosselingAvatar } from './YosselingAvatar';
 
 export function CinematicBackground() {
   const isStreaming = useAppStore(s => s.isStreaming);
-  const isSpeaking = useAppStore(s => s.isSpeaking);
   const isListening = useAppStore(s => s.isListening);
-  const activeChatId = useAppStore(s => s.activeChatId);
 
   const mouseRef = useRef({ x: 0.5, y: 0.5 });
-  const [chatChanged, setChatChanged] = useState(false);
-  const prevChatId = useRef<string | null>(null);
 
   const getMousePos = useCallback(() => mouseRef.current, []);
 
@@ -31,15 +26,6 @@ export function CinematicBackground() {
     return () => window.removeEventListener('mousemove', handler);
   }, []);
 
-  // Detect chat change
-  useEffect(() => {
-    if (prevChatId.current !== null && prevChatId.current !== activeChatId) {
-      setChatChanged(true);
-      setTimeout(() => setChatChanged(false), 50);
-    }
-    prevChatId.current = activeChatId;
-  }, [activeChatId]);
-
   return (
     <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 0, pointerEvents: 'none' }}>
       {/* Layer 1 — Nebula / deep space */}
@@ -52,14 +38,21 @@ export function CinematicBackground() {
         getMousePos={getMousePos}
       />
 
-      {/* Layer 3 — Avatar */}
-      <div className="absolute inset-0">
-        <YosselingAvatar
-          isListening={isListening}
-          isStreaming={isStreaming}
-          isSpeaking={isSpeaking}
-          getMousePos={getMousePos}
-          onChatChange={chatChanged}
+      {/* Layer 3 — Illustrated jungle portrait */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+          style={{
+            backgroundImage: "url('/yosseling-bg.png')",
+            imageRendering: 'auto',
+          }}
+        />
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
+          style={{
+            backgroundImage: 'linear-gradient(90deg, rgba(5,4,12,0.88) 0%, rgba(5,4,12,0.66) 30%, rgba(5,4,12,0.30) 62%, rgba(5,4,12,0.22) 100%), linear-gradient(180deg, rgba(7,5,16,0.12) 0%, rgba(7,5,16,0.08) 55%, rgba(7,5,16,0.45) 100%)',
+          }}
         />
       </div>
 
@@ -67,7 +60,7 @@ export function CinematicBackground() {
       <div
         className="absolute inset-0"
         style={{
-          background: 'linear-gradient(180deg, rgba(5,3,15,0.05) 0%, rgba(5,3,15,0.15) 40%, rgba(5,3,15,0.45) 70%, rgba(5,3,15,0.75) 100%)',
+          background: 'linear-gradient(180deg, rgba(5,3,15,0.12) 0%, rgba(5,3,15,0.10) 40%, rgba(5,3,15,0.42) 70%, rgba(5,3,15,0.78) 100%)',
           pointerEvents: 'none',
         }}
       />
