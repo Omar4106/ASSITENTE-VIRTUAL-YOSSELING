@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   title: 'Yosseling — Tu Asistente Inteligente',
   description: 'Yosseling es tu asistente virtual inteligente, rápida y capaz.',
   icons: { icon: '/assets/images/logo_de_yosseling_sin_fondo_.png' },
-  manifest: '/manifest.webmanifest',
+  manifest: '/manifest.json',
   openGraph: {
     type: 'website',
     locale: 'es_ES',

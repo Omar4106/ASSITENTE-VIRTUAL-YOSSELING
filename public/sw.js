@@ -1,5 +1,12 @@
 const CACHE_NAME = 'yosseling-offline-v1';
-const APP_SHELL = ['/', '/manifest.webmanifest', '/yosseling-bg.png'];
+const APP_SHELL = [
+  '/',
+  '/manifest.json',
+  '/manifest.webmanifest',
+  '/yosseling-bg.png',
+  '/assets/images/yosseling-icon-192.png',
+  '/assets/images/yosseling-icon-512.png',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -53,7 +60,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   const isStaticAsset = url.pathname.startsWith('/_next/static/')
-    || /\.(?:css|js|png|jpe?g|webp|svg|ico|woff2?)$/i.test(url.pathname);
+    || /\.(?:css|js|json|webmanifest|png|jpe?g|webp|svg|ico|woff2?)$/i.test(url.pathname);
   if (!isStaticAsset) {
     event.respondWith(
       fetch(request).catch(() => new Response('Este recurso requiere conexión a internet.', {
