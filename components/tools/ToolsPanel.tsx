@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Image as ImageIcon, Eye, FileSearch, Volume2, Mic, Globe, Printer, FileText, ChevronDown, SlidersHorizontal, Gauge, Languages, Palette, Type, Brain, X, Zap, Activity, CircleCheck as CheckCircle2, CircleAlert as AlertCircle, ArrowRight, Square, Play, Pause } from 'lucide-react';
 import { useAppStore, useActiveChat } from '@/lib/store';
@@ -25,6 +25,7 @@ const FONT_SIZES = [
 ] as const;
 
 export function ToolsPanel() {
+  const [isMounted, setIsMounted] = useState(false);
   const {
     settings, updateSettings, memory, pendingFiles,
     sendMessage, isSpeaking, rightPanelOpen, setRightPanelOpen,
@@ -34,6 +35,10 @@ export function ToolsPanel() {
   const { speak, stopSpeaking, pauseSpeaking, resumeSpeaking, startListening, voiceState } = useVoice();
   const [activeSection, setActiveSection] = useState<string | null>('tools');
 
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   const handleTool = (action: string) => {
     const prompts: Record<string, string> = {
       analyze_image: 'Analiza esta imagen y describe detalladamente lo que ves, incluyendo texto, objetos y contexto.',
@@ -42,7 +47,10 @@ export function ToolsPanel() {
       generate_image:'Crea una imagen de: ',
       summarize:     'Resume el siguiente texto de forma concisa: ',
     };
-    if (action === 'print')          { window.print(); return; }
+    if (action === 'print')          {
+      if (typeof window !== 'undefined') window.print();
+      return;
+    }
     if (action === 'read_voice') {
       const last = activeChat?.messages?.filter(m => m.role === 'assistant').pop();
       if (last) speak(last.content);
@@ -81,6 +89,10 @@ export function ToolsPanel() {
     </div>
   );
 
+
+  if (!isMounted) {
+    return <div className="p-6 text-zinc-400">Cargando herramienta...</div>;
+  }
 
   return (
     <motion.aside
@@ -181,7 +193,7 @@ export function ToolsPanel() {
               </div>
               {voiceState.currentWord && (
                 <p className="text-xs text-center text-purple-300 bg-purple-500/10 rounded-lg py-1">
-                  "{voiceState.currentWord}"
+                  &quot;{voiceState.currentWord}&quot;
                 </p>
               )}
               <div className="flex justify-center gap-2">

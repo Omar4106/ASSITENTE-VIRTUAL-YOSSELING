@@ -9,10 +9,10 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const SHORTENER_DOMAINS =
-  /vt\.tiktok\.com|vm\.tiktok\.com|instagr\.am|fb\.watch|fb\.gg|youtu\.be|facebook\.com\/share|pin\.it|redd\.it/i;
+  /vt\.tiktok\.com|vm\.tiktok\.com|instagr\.am|fb\.watch|fb\.gg|youtu\.be|facebook\.com\/share|t\.co|pin\.it|redd\.it/i;
 
 const SOCIAL_URL_PATTERN =
-  /^https?:\/\/(www\.)?(m\.)?(vt\.tiktok\.com|vm\.tiktok\.com|tiktok\.com|instagram\.com\/(reel|p|reels|tv)\/|instagr\.am|reel\.instagram\.com|facebook\.com(\/share\/(v|r|reel)\/|\/share|\/watch|\/reel\/|\/videos\/)?|fb\.watch|fb\.gg|fb\.com|youtu\.be|youtube\.com\/(watch|shorts|embed)|twitter\.com|x\.com|pinterest\.com|pin\.it|reddit\.com|redd\.it)/i;
+  /^https?:\/\/(?:(?:www|m)\.)?(?:vt\.tiktok\.com|vm\.tiktok\.com|tiktok\.com|instagram\.com|instagr\.am|reel\.instagram\.com|facebook\.com|fb\.watch|fb\.gg|fb\.com|youtu\.be|youtube\.com|twitter\.com|x\.com|t\.co|pinterest\.com|pin\.it|reddit\.com|redd\.it)(?:\/[^\s]*)?(?:\?[^\s]*)?(?:#[^\s]*)?$/i;
 
 const TIKWM_API = 'https://www.tikwm.com/api';
 
@@ -22,18 +22,105 @@ const BROWSER_HEADERS: Record<string, string> = {
   'User-Agent': BROWSER_UA_DESKTOP,
 };
 
+const MAX_HTML_BYTES = 256 * 1024;
+
 interface TikwmResponse {
   code: number;
   data?: { play?: string; wmplay?: string; music?: string; title?: string };
 }
 
+interface DirectCobaltResponse {
+  status?: string;
+  url?: string;
+  picker?: Array<{ url?: string }>;
+}
+
+function isSupportedSocialUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return (
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.port &&
+      SOCIAL_URL_PATTERN.test(parsed.href)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function getHtmlAttribute(tag: string, attribute: string): string | null {
+  const match = tag.match(new RegExp(`\\b${attribute}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'));
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+}
+
+function decodeHtmlUrl(value: string): string {
+  return value
+    .replace(/&amp;/gi, '&')
+    .replace(/&#0*39;|&#x0*27;/gi, "'")
+    .replace(/&quot;|&#0*34;|&#x0*22;/gi, '"')
+    .trim();
+}
+
+function extractCanonicalUrl(html: string): string | null {
+  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+    if (getHtmlAttribute(tag, 'property')?.toLowerCase() === 'og:url') {
+      const content = getHtmlAttribute(tag, 'content');
+      if (content) return decodeHtmlUrl(content);
+    }
+  }
+
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    const rel = getHtmlAttribute(tag, 'rel');
+    const href = getHtmlAttribute(tag, 'href');
+    if (rel?.toLowerCase().split(/\s+/).includes('canonical') && href) {
+      return decodeHtmlUrl(href);
+    }
+  }
+
+  return null;
+}
+
+async function readHtmlPrefix(response: Response): Promise<string> {
+  if (!response.body) return '';
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let result = '';
+  let bytesRead = 0;
+
+  try {
+    while (bytesRead < MAX_HTML_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const remaining = MAX_HTML_BYTES - bytesRead;
+      const chunk = value.subarray(0, remaining);
+      bytesRead += chunk.byteLength;
+      result += decoder.decode(chunk, { stream: bytesRead < MAX_HTML_BYTES });
+      if (chunk.byteLength < value.byteLength) break;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+
+  return result;
+}
+
 function stripTrackingParams(url: string): string {
   try {
     const parsed = new URL(url);
+    if (/(^|\.)((x|twitter)\.com)$/i.test(parsed.hostname)) {
+      parsed.search = '';
+      parsed.hash = '';
+      return parsed.origin + parsed.pathname;
+    }
     [
       'exIn', 'is_from_webapp', 'fbclid', 'gclid',
       'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
-      'igshid', 'ref', 'ref_url', 'shared_info', 'si', 'feature',
+      'igshid', 'ref', 'ref_src', 'ref_url', 'shared_info', 'si', 'feature',
+      's', 't', 'cxt', 'mx', 'cn', 'lang',
     ].forEach((p) => parsed.searchParams.delete(p));
     if (parsed.searchParams.toString() === '')
       return parsed.origin + parsed.pathname + parsed.hash;
@@ -41,6 +128,18 @@ function stripTrackingParams(url: string): string {
   } catch {
     const qIdx = url.indexOf('?');
     return qIdx === -1 ? url : url.slice(0, qIdx);
+  }
+}
+
+function normalizeTwitterUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!/(^|\.)(twitter|x)\.com$/i.test(parsed.hostname)) return url;
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.origin + parsed.pathname.replace(/\/+$/, '');
+  } catch {
+    return url;
   }
 }
 
@@ -58,23 +157,10 @@ function normalizeYouTubeUrl(url: string): string {
 }
 
 async function resolveShortenedUrl(url: string): Promise<string> {
-  if (!SHORTENER_DOMAINS.test(url)) return url;
-
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      headers: BROWSER_HEADERS,
-      signal: AbortSignal.timeout(10000),
-    });
-    const finalUrl = res.url || res.headers.get('location') || url;
-    if (finalUrl && finalUrl !== url) return stripTrackingParams(finalUrl);
-  } catch {
-    // fall through
-  }
+  if (!isSupportedSocialUrl(url) || !SHORTENER_DOMAINS.test(url)) return url;
 
   let current = url;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     try {
       const res = await fetch(current, {
         method: 'GET',
@@ -82,20 +168,86 @@ async function resolveShortenedUrl(url: string): Promise<string> {
         headers: BROWSER_HEADERS,
         signal: AbortSignal.timeout(8000),
       });
-      const location = res.headers.get('location');
-      if (location) {
-        current = location.startsWith('http') ? location : new URL(location, current).href;
-        if (SOCIAL_URL_PATTERN.test(stripTrackingParams(current)))
-          return stripTrackingParams(current);
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location');
+        if (!location) break;
+        const destination = new URL(location, current).href;
+        if (!isSupportedSocialUrl(destination)) break;
+        current = destination;
+        if (!SHORTENER_DOMAINS.test(current)) break;
         continue;
       }
-      break;
+
+      const contentType = res.headers.get('content-type') ?? '';
+      if (contentType.toLowerCase().includes('text/html')) {
+        const html = await readHtmlPrefix(res);
+        const canonical = extractCanonicalUrl(html);
+        if (canonical) {
+          const canonicalUrl = new URL(canonical, current).href;
+          if (isSupportedSocialUrl(canonicalUrl)) current = canonicalUrl;
+        }
+      } else {
+        await res.body?.cancel().catch(() => undefined);
+      }
+
+      if (!SHORTENER_DOMAINS.test(current)) {
+        break;
+      }
     } catch {
       break;
     }
   }
 
   return stripTrackingParams(current);
+}
+
+async function tryDirectCobalt(url: string, format: MediaFormat) {
+  try {
+    const res = await fetch('https://co.wuk.sh/api/json', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': BROWSER_UA_DESKTOP,
+        'Origin': 'https://co.wuk.sh',
+        'Referer': 'https://co.wuk.sh/',
+      },
+      body: JSON.stringify({
+        url,
+        vQuality: '720',
+        isAudioOnly: format === 'mp3',
+        filenameStyle: 'nerdy',
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+
+    if (!res.ok) return null;
+    const data = (await res.json()) as DirectCobaltResponse;
+
+    if (data.status === 'error' || (!data.url && !data.picker)) {
+      return null;
+    }
+
+    const directUrl = data.url ?? data.picker?.find((item) => item.url)?.url;
+    if (!directUrl || !isHttpsUrl(directUrl)) return null;
+
+    const ext = format === 'mp3' ? 'mp3' : 'mp4';
+    return {
+      directUrl,
+      filename: `yosseling_media_${Date.now()}.${ext}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 async function tryTikwm(url: string, format: MediaFormat) {
@@ -134,7 +286,7 @@ function buildProxyUrl(req: NextRequest, directUrl: string, filename: string, fo
 
 export async function POST(req: NextRequest) {
   const clientIp = getClientIp(req);
-  const rateLimit = checkRateLimit(`download:${clientIp}`, 10);
+  const rateLimit = checkRateLimit(`download:${clientIp}`, 30);
   if (!rateLimit.allowed) {
     return NextResponse.json(
       { success: false, error: 'Demasiadas solicitudes de descarga. Espera un momento.' },
@@ -168,10 +320,27 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const cleanedUrl = normalizeYouTubeUrl(stripTrackingParams(url));
-    const resolvedUrl = await resolveShortenedUrl(cleanedUrl);
+    const cleanedUrl = normalizeYouTubeUrl(normalizeTwitterUrl(stripTrackingParams(url)));
+    const resolvedUrl = normalizeTwitterUrl(stripTrackingParams(await resolveShortenedUrl(cleanedUrl)));
 
-    // 1. btch-downloader — lightweight JSON extractors for YT/IG/TT/X/FB
+    // 1. Fallback directo a Cobalt API (Prioritario y robusto para FB, IG, X)
+    const directCobaltResult = await tryDirectCobalt(resolvedUrl, format);
+    if (directCobaltResult) {
+      const proxyUrl = buildProxyUrl(req, directCobaltResult.directUrl, directCobaltResult.filename, format);
+      return NextResponse.json(
+        {
+          success: true,
+          downloadUrl: proxyUrl,
+          directUrl: directCobaltResult.directUrl,
+          filename: directCobaltResult.filename,
+          format,
+          provider: 'direct-cobalt',
+        },
+        { status: 200 },
+      );
+    }
+
+    // 2. btch-downloader
     const btchResult = await tryBtchDownloader(resolvedUrl, format);
     if (btchResult) {
       const proxyUrl = buildProxyUrl(req, btchResult.directUrl, btchResult.filename, format);
@@ -188,7 +357,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Cobalt mirrors (optional COBALT_API_KEY)
+    // 3. Cobalt mirrors
     const cobaltResult = await tryCobaltInstances(resolvedUrl, format);
     if (cobaltResult) {
       const proxyUrl = buildProxyUrl(req, cobaltResult.directUrl, cobaltResult.filename, format);
@@ -205,7 +374,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. RapidAPI (optional RAPIDAPI_KEY)
+    // 4. RapidAPI
     const rapidResult = await tryRapidApi(resolvedUrl, format);
     if (rapidResult) {
       const proxyUrl = buildProxyUrl(req, rapidResult.directUrl, rapidResult.filename, format);
@@ -222,7 +391,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. TikWM for TikTok
+    // 5. TikWM for TikTok
     const tikwmResult = await tryTikwm(resolvedUrl, format);
     if (tikwmResult) {
       const proxyUrl = buildProxyUrl(req, tikwmResult.directUrl, tikwmResult.filename, format);

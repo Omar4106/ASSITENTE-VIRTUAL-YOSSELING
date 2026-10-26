@@ -1,0 +1,23 @@
+name: Main Config
+version: 1.0.0
+schema: v1
+
+models:
+  - name: Groq - Llama 3.3 70B (Ultra Rápido)
+    provider: openai
+    model: llama-3.3-70b-versatile
+    apiBase: https://api.groq.com/openai/v1/
+    apiKey: gsk_IPipdas58wTVekkuS9ejWGdyb3FYHTXOvdqqrAtVQnoZn81aWyPKI
+    roles:
+      - chat
+      - edit
+      - apply
+  - name: Groq - Qwen 2.5 Coder 32B
+    provider: openai
+    model: qwen-2.5-coder-32b
+    apiBase: https://api.groq.com/openai/v1/
+    apiKey: TU_API_KEY_DE_GROQ_AQUI
+    roles:
+      - chat
+      - edit
+      - apply

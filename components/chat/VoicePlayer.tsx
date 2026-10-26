@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, SkipForward, SkipBack, Volume2, X } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, X } from 'lucide-react';
 import type { VoiceState } from '@/hooks/useVoice';
 
 interface VoicePlayerProps {
@@ -9,7 +9,9 @@ interface VoicePlayerProps {
   onSeek: (time: number) => void;
   onSkip: (seconds: number) => void;
   onTogglePlay: () => void;
+  onToggleVolume: () => void;
   onStop: () => void;
+  isMuted: boolean;
 }
 
 function formatTime(seconds: number): string {
@@ -19,7 +21,7 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export function VoicePlayer({ voiceState, onSeek, onSkip, onTogglePlay, onStop }: VoicePlayerProps) {
+export function VoicePlayer({ voiceState, onSeek, onSkip, onTogglePlay, onToggleVolume, onStop, isMuted }: VoicePlayerProps) {
   const { isSpeaking, isPaused, progress, duration, currentTime } = voiceState;
 
   const handleSeekbarClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -40,10 +42,10 @@ export function VoicePlayer({ voiceState, onSeek, onSkip, onTogglePlay, onStop }
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 100, opacity: 0 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[min(640px,calc(100vw-2rem)]"
+          className="fixed bottom-4 left-1/2 z-50 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2"
         >
           <div
-            className="rounded-2xl border border-purple-500/30 px-4 py-3 shadow-2xl"
+            className="rounded-2xl border border-purple-500/30 px-4 py-3.5 shadow-2xl sm:px-5"
             style={{
               background: 'rgba(12,9,28,0.85)',
               backdropFilter: 'blur(20px)',
@@ -51,56 +53,78 @@ export function VoicePlayer({ voiceState, onSeek, onSkip, onTogglePlay, onStop }
               boxShadow: '0 8px 32px rgba(124,58,237,0.25), inset 0 1px 0 rgba(255,255,255,0.06)',
             }}
           >
-            <div className="flex items-center gap-3">
-              {/* Play/Pause */}
+            <div className="flex items-center gap-3 sm:gap-4">
               <button
                 onClick={onTogglePlay}
-                className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-white hover:scale-105 transition-transform"
+                type="button"
+                aria-label={isPaused ? 'Reanudar reproducción' : 'Pausar reproducción'}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-indigo-500 text-white shadow-lg shadow-purple-950/30 transition-all duration-200 hover:scale-105 hover:brightness-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
               >
                 {isPaused ? <Play size={18} className="ml-0.5" /> : <Pause size={18} />}
               </button>
 
-              {/* Skip back */}
               <button
                 onClick={() => onSkip(-5)}
-                className="shrink-0 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                type="button"
+                aria-label="Retroceder 5 segundos"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/5 text-white/70 transition-all duration-200 hover:scale-105 hover:bg-white/10 hover:text-white active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
                 title="Retroceder 5s"
               >
                 <SkipBack size={14} />
               </button>
 
-              {/* Seekbar */}
-              <div className="flex-1 min-w-0 flex items-center gap-2">
-                <span className="text-[10px] text-white/50 tabular-nums w-8 text-right">{formatTime(currentTime)}</span>
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-medium tabular-nums text-white/70">
+                    {formatTime(currentTime)} <span className="text-white/35">/</span> {formatTime(duration)}
+                  </span>
+                  {voiceState.currentWord && (
+                    <span className="min-w-0 truncate text-[10px] text-purple-200/70">{voiceState.currentWord}</span>
+                  )}
+                </div>
                 <div
+                  role="progressbar"
+                  aria-label="Progreso de voz"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(progress)}
                   onClick={handleSeekbarClick}
-                  className="flex-1 h-1.5 rounded-full cursor-pointer relative group"
+                  className="group relative h-1.5 cursor-pointer rounded-full transition-all duration-200 hover:h-2"
                   style={{ background: `linear-gradient(to right, rgb(168,85,247) ${progress}%, rgba(255,255,255,0.1) ${progress}%)` }}
                 >
                   <div
-                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white shadow-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                    className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-white opacity-0 shadow-md transition-opacity duration-200 group-hover:opacity-100"
                     style={{ left: `calc(${progress}% - 6px)` }}
                   />
                 </div>
-                <span className="text-[10px] text-white/50 tabular-nums w-8">{formatTime(duration)}</span>
               </div>
 
-              {/* Skip forward */}
               <button
                 onClick={() => onSkip(5)}
-                className="shrink-0 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                type="button"
+                aria-label="Avanzar 5 segundos"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/5 text-white/70 transition-all duration-200 hover:scale-105 hover:bg-white/10 hover:text-white active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
                 title="Avanzar 5s"
               >
                 <SkipForward size={14} />
               </button>
 
-              {/* Volume icon */}
-              <Volume2 size={16} className="shrink-0 text-purple-300/70 hidden sm:block" />
+              <button
+                onClick={onToggleVolume}
+                type="button"
+                aria-label={isMuted ? 'Activar volumen' : 'Silenciar voz'}
+                aria-pressed={isMuted}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/5 text-purple-200/80 transition-all duration-200 hover:scale-105 hover:bg-white/10 hover:text-purple-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300"
+                title={isMuted ? 'Activar volumen' : 'Silenciar voz'}
+              >
+                {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+              </button>
 
-              {/* Stop */}
               <button
                 onClick={onStop}
-                className="shrink-0 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-white/60 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                type="button"
+                aria-label="Cerrar reproductor y detener voz"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/5 text-white/60 transition-all duration-200 hover:scale-105 hover:bg-red-500/10 hover:text-red-400 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                 title="Detener"
               >
                 <X size={16} />

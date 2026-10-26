@@ -26,7 +26,7 @@ const QUICK_ACTIONS = [
 export function ChatArea() {
   const { activeChatId, isStreaming, sendMessage } = useAppStore();
   const activeChat = useActiveChat();
-  const { speak, stopSpeaking, pauseSpeaking, resumeSpeaking, seek, skipBy, voiceState } = useVoice();
+  const { speak, stopSpeaking, pauseSpeaking, resumeSpeaking, seek, skipBy, toggleMute, isMuted, voiceState } = useVoice();
   const { processFiles, isProcessing, processingName } = useFileUpload();
   const personality = useAppStoreForSettings(s => s.settings.personality);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
@@ -235,7 +235,9 @@ export function ChatArea() {
         onSeek={seek}
         onSkip={skipBy}
         onTogglePlay={() => voiceState.isPaused ? resumeSpeaking() : pauseSpeaking()}
+        onToggleVolume={toggleMute}
         onStop={stopSpeaking}
+        isMuted={isMuted}
       />
     </div>
   );

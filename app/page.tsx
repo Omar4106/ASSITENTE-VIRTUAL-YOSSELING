@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { Sidebar } from '@/components/sidebar/Sidebar';
@@ -11,6 +11,7 @@ import { MemoryPanel } from '@/components/panels/MemoryPanel';
 import { SettingsPanel } from '@/components/panels/SettingsPanel';
 import { HelpPanel } from '@/components/panels/HelpPanel';
 import { CinematicBackground } from '@/components/background/CinematicBackground';
+import { AdvancedTools } from '@/components/tools/AdvancedTools';
 import { X } from 'lucide-react';
 
 function PanelContent() {
@@ -23,10 +24,13 @@ function PanelContent() {
 }
 
 export default function Home() {
+  const [isToolsOpen, setIsToolsOpen] = useState(false);
   const { initStore, sidebarOpen, setSidebarOpen, sidebarView, createNewChat, settings } = useAppStore();
 
   useEffect(() => {
-    initStore();
+    void initStore().catch((error: unknown) => {
+      console.error('[Yosseling] Failed to initialize local store:', error);
+    });
   }, [initStore]);
 
   // Apply theme, font size, and language to the DOM instantly when settings change.
@@ -201,10 +205,13 @@ export default function Home() {
               borderBottom: '1px solid rgba(124,58,237,0.1)',
             }}
           >
-            <Header />
+            <Header
+              isToolsOpen={isToolsOpen}
+              onOpenTools={() => setIsToolsOpen((open) => !open)}
+            />
           </div>
 
-          <div className="flex flex-1 min-h-0 overflow-hidden">
+          <div className={`flex flex-1 min-h-0 overflow-hidden ${isToolsOpen ? 'hidden' : ''}`}>
             <div className="flex-1 min-w-0 overflow-hidden relative">
               <div
                 className="absolute inset-0"
@@ -218,6 +225,10 @@ export default function Home() {
                 <ChatArea />
               </div>
             </div>
+          </div>
+
+          <div className={`flex-1 min-h-0 overflow-hidden ${isToolsOpen ? 'flex' : 'hidden'}`}>
+            <AdvancedTools />
           </div>
 
           <MobileNav />

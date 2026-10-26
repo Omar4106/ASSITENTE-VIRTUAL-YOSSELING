@@ -1,12 +1,17 @@
 'use client';
 
-import { Sun, Moon, Bell, User, Menu } from 'lucide-react';
+import { Sun, Moon, Bell, User, Menu, Wrench } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { ModelSelector } from './ModelSelector';
 import { cn } from '@/lib/utils';
 import { OfflineStatus } from '@/components/offline/OfflineStatus';
 
-export function Header() {
+interface HeaderProps {
+  onOpenTools: () => void;
+  isToolsOpen: boolean;
+}
+
+export function Header({ onOpenTools, isToolsOpen }: HeaderProps) {
   const {
     settings, updateSettings,
     sidebarOpen, setSidebarOpen,
@@ -35,6 +40,17 @@ export function Header() {
 
       <div className="flex items-center gap-2">
         <OfflineStatus />
+
+        <button
+          type="button"
+          onClick={onOpenTools}
+          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-xs text-[#B3B3B3] hover:bg-white/5 hover:text-white sm:px-3"
+          aria-label={isToolsOpen ? 'Volver al chat' : 'Abrir herramientas'}
+          aria-pressed={isToolsOpen}
+        >
+          <Wrench size={16} />
+          <span className="hidden sm:inline">{isToolsOpen ? 'Volver al chat' : 'Herramientas'}</span>
+        </button>
 
         <button onClick={toggleTheme} className="p-2 rounded-lg text-[#B3B3B3] hover:text-white hover:bg-white/5 transition-colors">
           {isDark ? <Sun size={16} /> : <Moon size={16} />}
