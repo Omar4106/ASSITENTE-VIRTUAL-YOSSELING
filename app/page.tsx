@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useEffect, useCallback, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
@@ -11,8 +12,12 @@ import { MemoryPanel } from '@/components/panels/MemoryPanel';
 import { SettingsPanel } from '@/components/panels/SettingsPanel';
 import { HelpPanel } from '@/components/panels/HelpPanel';
 import { CinematicBackground } from '@/components/background/CinematicBackground';
-import { AdvancedTools } from '@/components/tools/AdvancedTools';
 import { X } from 'lucide-react';
+
+const AdvancedTools = dynamic(
+  () => import('@/components/tools/AdvancedTools').then((module) => module.AdvancedTools),
+  { loading: () => <div className="p-6 text-zinc-400">Cargando herramientas...</div> },
+);
 
 function PanelContent() {
   const { sidebarView } = useAppStore();
@@ -25,6 +30,7 @@ function PanelContent() {
 
 export default function Home() {
   const [isToolsOpen, setIsToolsOpen] = useState(false);
+  const [hasOpenedTools, setHasOpenedTools] = useState(false);
   const { initStore, sidebarOpen, setSidebarOpen, sidebarView, createNewChat, settings } = useAppStore();
 
   useEffect(() => {
@@ -51,6 +57,11 @@ export default function Home() {
       createNewChat();
     }
   }, [createNewChat]);
+
+  const toggleTools = useCallback(() => {
+    setIsToolsOpen((open) => !open);
+    setHasOpenedTools(true);
+  }, []);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -207,7 +218,7 @@ export default function Home() {
           >
             <Header
               isToolsOpen={isToolsOpen}
-              onOpenTools={() => setIsToolsOpen((open) => !open)}
+              onOpenTools={toggleTools}
             />
           </div>
 
@@ -227,9 +238,11 @@ export default function Home() {
             </div>
           </div>
 
-          <div className={`flex-1 min-h-0 overflow-hidden ${isToolsOpen ? 'flex' : 'hidden'}`}>
-            <AdvancedTools />
-          </div>
+          {hasOpenedTools && (
+            <div className={`flex-1 min-h-0 overflow-hidden ${isToolsOpen ? 'flex' : 'hidden'}`}>
+              <AdvancedTools isActive={isToolsOpen} />
+            </div>
+          )}
 
           <MobileNav />
         </div>

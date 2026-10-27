@@ -234,7 +234,7 @@ export function useVoice() {
     setVoiceState({ isSpeaking: false, isPaused: false, currentWord: '', progress: 0, duration: 0, currentTime: 0 });
   }, [setIsSpeaking]);
 
-  const speak = useCallback(async (text: string, personality?: PersonalityStyle) => {
+  const speak = useCallback(async (text: string, personality?: PersonalityStyle, preferBrowser = false) => {
     const requestId = ++speechRequestRef.current;
     const isCurrentRequest = () => speechRequestRef.current === requestId;
     const selection = window.getSelection?.();
@@ -271,6 +271,11 @@ export function useVoice() {
         (utterance) => { activeUtteranceRef.current = utterance; },
       );
     };
+
+    if (preferBrowser) {
+      startBrowserFallback();
+      return;
+    }
 
     try {
       const response = await fetch('/api/tts', {

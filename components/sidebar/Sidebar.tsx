@@ -60,7 +60,14 @@ function ChatItem({ chat, isActive, mobileMode = false }: { chat: Chat; isActive
           onClick={e => e.stopPropagation()}
         />
       ) : (
-        <span className="flex-1 text-sm truncate">{chat.title}</span>
+        <>
+          <span className="flex-1 text-sm truncate">{chat.title}</span>
+          {chat.section && chat.section !== 'general' && (
+            <span className="rounded-full bg-purple-400/10 px-1.5 py-0.5 text-[9px] capitalize text-purple-200/75">
+              {chat.section === 'employment' ? 'Empleo' : chat.section === 'vision' ? 'Visión' : 'Voz'}
+            </span>
+          )}
+        </>
       )}
 
       {(chat.isPinned || chat.isFavorite) && (

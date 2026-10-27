@@ -29,6 +29,8 @@ export interface ModelConfig {
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system';
+export type ConversationSection = 'general' | 'vision' | 'employment' | 'voice';
+export type ImageGenerationProvider = 'auto' | 'huggingface' | 'fal';
 
 export interface AttachedFile {
   id: string;
@@ -44,6 +46,7 @@ export interface Message {
   role: MessageRole;
   content: string;
   timestamp: number;
+  section?: ConversationSection;
   model?: string;
   provider?: Provider;
   attachments?: AttachedFile[];
@@ -65,6 +68,7 @@ export interface Chat {
   updatedAt: number;
   model: string;
   provider: Provider;
+  section?: ConversationSection;
   isPinned?: boolean;
   isFavorite?: boolean;
   isShared?: boolean;
@@ -193,5 +197,4 @@ export interface CyclePrediction {
   isCurrentlyOnPeriod: boolean;
   fertilityWindow: { start: string; end: string };
 }
-
 

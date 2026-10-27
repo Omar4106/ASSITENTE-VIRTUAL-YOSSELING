@@ -1,10 +1,74 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BriefcaseBusiness, Check, ExternalLink, FileText, LoaderCircle, Upload, X } from 'lucide-react';
+import { BriefcaseBusiness, Check, Clipboard, ExternalLink, FileText, LoaderCircle, Mail, Upload, X } from 'lucide-react';
 import type { JobRadarResponse } from '@/lib/tools';
 
 const MAX_CV_BYTES = 10 * 1024 * 1024;
+const JOB_RADAR_CACHE_PREFIX = 'yosseling-job-radar-v1:';
+const JOB_RADAR_CACHE_TTL_MS = 15 * 60 * 1000;
+
+interface JobRadarCacheEntry {
+  createdAt: number;
+  result: JobRadarResponse;
+}
+
+function isJobRadarResponse(value: unknown): value is JobRadarResponse {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<JobRadarResponse>;
+  return Boolean(
+    candidate.profile &&
+    Array.isArray(candidate.profile.skills) &&
+    typeof candidate.profile.experience === 'string' &&
+    typeof candidate.profile.education === 'string' &&
+    Array.isArray(candidate.skillGap) &&
+    Array.isArray(candidate.interviewQuestions) &&
+    Array.isArray(candidate.jobs),
+  );
+}
+
+async function getJobRadarCacheKey(cvText: string, country: string, profession: string): Promise<string | null> {
+  if (typeof window === 'undefined' || !window.crypto?.subtle) return null;
+  try {
+    const input = JSON.stringify([cvText.trim(), country.trim(), profession.trim()]);
+    const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+    const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return `${JOB_RADAR_CACHE_PREFIX}${hash}`;
+  } catch (cacheError) {
+    console.warn('[JobRadar] Session cache key could not be generated:', cacheError);
+    return null;
+  }
+}
+
+async function readJobRadarCache(key: string | null): Promise<JobRadarResponse | null> {
+  if (!key || typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const entry = JSON.parse(raw) as Partial<JobRadarCacheEntry>;
+    if (
+      typeof entry.createdAt !== 'number' ||
+      Date.now() - entry.createdAt > JOB_RADAR_CACHE_TTL_MS ||
+      !isJobRadarResponse(entry.result)
+    ) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+    return entry.result;
+  } catch (cacheError) {
+    console.warn('[JobRadar] Session cache could not be read:', cacheError);
+    return null;
+  }
+}
+
+function writeJobRadarCache(key: string | null, result: JobRadarResponse): void {
+  if (!key || typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify({ createdAt: Date.now(), result } satisfies JobRadarCacheEntry));
+  } catch (cacheError) {
+    console.warn('[JobRadar] Session cache could not be saved:', cacheError);
+  }
+}
 
 const COUNTRIES = [
   'Panamá', 'Colombia', 'México', 'España', 'Estados Unidos', 'Argentina',
@@ -47,6 +111,8 @@ export function JobRadar() {
   const [error, setError] = useState('');
   const [isReading, setIsReading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [coverLetter, setCoverLetter] = useState('');
+  const [letterCopied, setLetterCopied] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -57,6 +123,7 @@ export function JobRadar() {
     if (!file) return;
     setError('');
     setResult(null);
+    setCoverLetter('');
     if (file.size > MAX_CV_BYTES) {
       setError('El CV supera el límite de 10 MB.');
       return;
@@ -87,8 +154,16 @@ export function JobRadar() {
     event.preventDefault();
     setError('');
     setResult(null);
+    setCoverLetter('');
     setIsSearching(true);
     try {
+      const cacheKey = await getJobRadarCacheKey(cvText, country, profession);
+      const cachedResult = await readJobRadarCache(cacheKey);
+      if (cachedResult) {
+        setResult(cachedResult);
+        return;
+      }
+
       const response = await fetch('/api/tools/job-radar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -96,11 +171,44 @@ export function JobRadar() {
       });
       const data = (await response.json()) as JobRadarResponse & { error?: string };
       if (!response.ok) throw new Error(data.error ?? 'No se pudo analizar el perfil.');
+      if (!isJobRadarResponse(data)) throw new Error('El servicio devolvió un análisis con formato inválido.');
+      writeJobRadarCache(cacheKey, data);
       setResult(data);
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : 'Error al buscar coincidencias.');
     } finally {
       setIsSearching(false);
+    }
+  };
+
+  const generateCoverLetter = () => {
+    if (!result) return;
+    const firstLine = cvText.split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 1 && line.length < 70);
+    const candidateName = firstLine && !/curriculum|resume|perfil profesional/i.test(firstLine)
+      ? firstLine
+      : 'Candidato/a';
+    const topSkills = result.profile.skills.slice(0, 4);
+    setCoverLetter([
+      `Estimado equipo de selección:`,
+      '',
+      `Me gustaría postularme a oportunidades de ${profession} en ${country}. Mi experiencia y formación, resumidas en mi CV, me han permitido desarrollar una base profesional que deseo aportar a su equipo.`,
+      topSkills.length ? `Entre mis competencias relevantes se encuentran ${topSkills.join(', ')}.` : 'Estoy motivado/a para aportar mis conocimientos, aprender y contribuir a los objetivos del equipo.',
+      `Me interesa especialmente seguir creciendo en ${profession} y aportar compromiso, capacidad de aprendizaje y atención a la calidad del trabajo.`,
+      '',
+      'Gracias por considerar mi perfil. Quedo disponible para conversar sobre cómo puedo contribuir a la posición.',
+      '',
+      `Atentamente,\n${candidateName}`,
+    ].join('\n\n'));
+  };
+
+  const copyCoverLetter = async () => {
+    if (!coverLetter || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(coverLetter);
+      setLetterCopied(true);
+      window.setTimeout(() => setLetterCopied(false), 1800);
+    } catch (copyError) {
+      setError(copyError instanceof Error ? 'No se pudo copiar la carta. Selecciona el texto y cópialo manualmente.' : 'No se pudo copiar la carta.');
     }
   };
 
@@ -137,6 +245,7 @@ export function JobRadar() {
             <FileText size={13} /> Texto extraído ({cvText.length.toLocaleString()} caracteres)
           </p>
         )}
+        {cvText && <p className="text-[11px] text-white/40">El resultado se puede guardar en la sesión actual hasta 15 minutos. El texto original del CV no se almacena en la caché.</p>}
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="space-y-1.5 text-xs text-white/65">
             País o región
@@ -190,6 +299,50 @@ export function JobRadar() {
                 <span key={skill} className="rounded-full bg-cyan-400/10 px-2 py-1 text-[11px] text-cyan-100">{skill}</span>
               )) : <span className="text-xs text-white/50">No se detectaron habilidades del catálogo.</span>}
             </div>
+          </div>
+
+          <div className="rounded-xl border border-orange-300/15 bg-orange-300/[0.04] p-4">
+            <h3 className="text-sm font-medium text-white">Habilidades y tecnologías por reforzar</h3>
+            <p className="mt-1 text-[11px] text-white/50">Sugerencias orientativas para fortalecer tu perfil y su relevancia en filtros ATS.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {result.skillGap.length ? result.skillGap.map((skill) => (
+                <span key={skill} className="rounded-full border border-orange-200/10 bg-orange-200/[0.06] px-2.5 py-1 text-xs text-orange-100">{skill}</span>
+              )) : <p className="text-xs text-green-200">No se detectaron brechas en las habilidades clave de este perfil.</p>}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-purple-300/15 bg-purple-300/[0.04] p-4">
+            <h3 className="text-sm font-medium text-white">Simulador de entrevista</h3>
+            <ol className="mt-3 list-inside list-decimal space-y-2 text-xs leading-relaxed text-white/70">
+              {result.interviewQuestions.map((question) => <li key={question}>{question}</li>)}
+            </ol>
+          </div>
+
+          <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.04] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-medium text-white">Carta de presentación</h3>
+                <p className="mt-1 text-[11px] text-white/50">Borrador orientativo basado en la información extraída de tu CV.</p>
+              </div>
+              <button type="button" onClick={generateCoverLetter} className="inline-flex items-center gap-2 rounded-lg bg-cyan-400/10 px-3 py-2 text-xs font-medium text-cyan-100 transition-colors hover:bg-cyan-400/20">
+                <Mail size={14} /> {coverLetter ? 'Regenerar carta' : 'Generar Carta de Presentación'}
+              </button>
+            </div>
+            {coverLetter && (
+              <div className="mt-3 space-y-2">
+                <textarea
+                  aria-label="Borrador de carta de presentación"
+                  value={coverLetter}
+                  onChange={(event) => setCoverLetter(event.target.value)}
+                  rows={9}
+                  className="w-full resize-y rounded-lg border border-white/10 bg-black/20 p-3 text-xs leading-relaxed text-white/75 outline-none focus:border-cyan-300/40"
+                />
+                <button type="button" onClick={() => void copyCoverLetter()} className="inline-flex items-center gap-1.5 text-xs text-cyan-200 hover:text-white">
+                  {letterCopied ? <Check size={13} /> : <Clipboard size={13} />}
+                  {letterCopied ? 'Copiada' : 'Copiar carta'}
+                </button>
+              </div>
+            )}
           </div>
 
           <ul className="space-y-3">

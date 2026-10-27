@@ -47,6 +47,19 @@ declare global {
   }
 }
 
+type VoiceNavigationTarget = 'job' | 'doctor' | 'vision' | 'downloads' | 'settings';
+
+function getVoiceNavigationTarget(text: string): VoiceNavigationTarget | null {
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const command = normalized.trim().replace(/[.!?]+$/, '');
+  if (/^(?:(?:ir a|abre|abrir|ve a|navega a)\s+)?(?:empleo|trabajo|vacantes)$/.test(command)) return 'job';
+  if (/^(?:(?:ir a|abre|abrir|ve a|navega a)\s+)?(?:dispositivos|doctor|equipo)$/.test(command)) return 'doctor';
+  if (/^(?:(?:ir a|abre|abrir|ve a|navega a)\s+)?(?:vision|camara)$/.test(command)) return 'vision';
+  if (/^(?:(?:ir a|abre|abrir|ve a|navega a)\s+)?(?:descargas|cola de descargas)$/.test(command)) return 'downloads';
+  if (/^(?:(?:ir a|abre|abrir|ve a|navega a)\s+)?(?:configuracion|ajustes)$/.test(command)) return 'settings';
+  return null;
+}
+
 export function VoiceMode() {
   const { speak, stopSpeaking, voiceState } = useVoice();
   const { chats, activeChatId, isStreaming, sendMessage } = useAppStore();
@@ -66,6 +79,8 @@ export function VoiceMode() {
   const restartAttemptsRef = useRef(0);
   const scheduleRestartRef = useRef<() => void>(() => undefined);
   const resumeAfterSpeechRef = useRef(false);
+  const pendingNavigationRef = useRef<VoiceNavigationTarget | null>(null);
+  const wasSpeakingRef = useRef(false);
   const isSpeakingRef = useRef(voiceState.isSpeaking);
   const isStreamingRef = useRef(isStreaming);
   isSpeakingRef.current = voiceState.isSpeaking;
@@ -185,9 +200,18 @@ export function VoiceMode() {
         shouldListenRef.current = false;
         waitingForReplyRef.current = true;
         resumeAfterSpeechRef.current = true;
+        pendingNavigationRef.current = getVoiceNavigationTarget(finalText);
         setListening(false);
         recognition.stop();
-        void sendMessage(finalText);
+        void sendMessage(finalText).catch((sendError: unknown) => {
+          pendingNavigationRef.current = null;
+          waitingForReplyRef.current = false;
+          setError(sendError instanceof Error ? sendError.message : 'No se pudo enviar la consulta por voz.');
+          if (activeRef.current) {
+            shouldListenRef.current = true;
+            startListening();
+          }
+        });
       } else if (interim.trim().length > 2 && isSpeakingRef.current) {
         stopSpeaking();
         setTranscript(interim.trim());
@@ -249,7 +273,7 @@ export function VoiceMode() {
     const reply = [...(chat?.messages ?? [])].reverse().find((message) => message.role === 'assistant' && message.content.trim());
     if (reply) {
       shouldListenRef.current = false;
-      speak(reply.content);
+      void speak(reply.content, undefined, true);
     } else if (activeRef.current) {
       shouldListenRef.current = true;
       startListening();
@@ -257,6 +281,21 @@ export function VoiceMode() {
   }, [activeChatId, chats, isStreaming, speak, startListening]);
 
   useEffect(() => {
+    const wasSpeaking = wasSpeakingRef.current;
+    wasSpeakingRef.current = voiceState.isSpeaking;
+    if (
+      wasSpeaking &&
+      !voiceState.isSpeaking &&
+      !isStreaming &&
+      pendingNavigationRef.current
+    ) {
+      const target = pendingNavigationRef.current;
+      pendingNavigationRef.current = null;
+      resumeAfterSpeechRef.current = false;
+      window.dispatchEvent(new CustomEvent<VoiceNavigationTarget>('yosseling:navigate-tool', { detail: target }));
+      return;
+    }
+
     if (!resumeAfterSpeechRef.current || voiceState.isSpeaking || isStreaming || waitingForReplyRef.current) return;
     if (activeRef.current) {
       resumeAfterSpeechRef.current = false;
@@ -304,7 +343,14 @@ export function VoiceMode() {
         </div>
         {active && (
           <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] ${listening ? 'bg-green-400/10 text-green-200' : 'bg-amber-300/10 text-amber-100'}`}>
-            <span className={`h-2 w-2 rounded-full ${listening ? 'animate-pulse bg-green-300' : 'bg-amber-200'}`} />
+            {listening ? (
+              <span className="inline-flex h-3 items-center gap-0.5" aria-label="Ondas de audio: escuchando">
+                <span className="h-1 w-0.5 animate-pulse rounded-full bg-green-200" />
+                <span className="h-3 w-0.5 animate-pulse rounded-full bg-green-200 [animation-delay:120ms]" />
+                <span className="h-2 w-0.5 animate-pulse rounded-full bg-green-200 [animation-delay:240ms]" />
+                <span className="h-1.5 w-0.5 animate-pulse rounded-full bg-green-200 [animation-delay:360ms]" />
+              </span>
+            ) : <span className={`h-2 w-2 rounded-full ${restarting ? 'animate-pulse bg-amber-200' : 'bg-amber-200'}`} />}
             {listening ? 'Escuchando' : restarting ? 'Reconectando' : 'En espera'}
           </span>
         )}

@@ -70,6 +70,14 @@
     @apply border-border;
     box-sizing: border-box;
   }
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role="button"] {
+    touch-action: manipulation;
+  }
   html {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
@@ -80,6 +88,30 @@
     -moz-osx-font-smoothing: grayscale;
     overflow: hidden;
     height: 100dvh;
+  }
+}
+
+@keyframes tool-panel-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 5px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.tool-panel-enter {
+  animation: tool-panel-in 140ms ease-out both;
+  transform: translateZ(0);
+  will-change: opacity, transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-panel-enter {
+    animation: none;
+    will-change: auto;
   }
 }
 

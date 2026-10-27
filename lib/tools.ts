@@ -15,5 +15,7 @@ export interface JobRadarResponse {
     experience: string;
     education: string;
   };
+  skillGap: string[];
+  interviewQuestions: string[];
   jobs: JobMatch[];
 }

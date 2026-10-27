@@ -34,6 +34,36 @@ function normalize(text: string): string {
   return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
+function getRelevantRole(profession: string) {
+  const normalizedProfession = normalize(profession);
+  const professionMatches: Array<{ keywords: string[]; title: string }> = [
+    { keywords: ['backend', 'back end', 'servidor'], title: 'Desarrollador/a Backend' },
+    { keywords: ['frontend', 'front end'], title: 'Desarrollador/a Frontend' },
+    { keywords: ['desarrollador', 'software', 'web'], title: 'Desarrollador/a Frontend' },
+    { keywords: ['datos', 'data', 'analista'], title: 'Analista de datos' },
+    { keywords: ['soporte', 'sistemas', 'redes', 'it'], title: 'Especialista de soporte IT' },
+    { keywords: ['laboratorio', 'microbiologia', 'tecnico de laboratorio'], title: 'Técnico/a de laboratorio' },
+    { keywords: ['biologia', 'biologo', 'investigacion', 'biotecnologia'], title: 'Asistente de investigación biológica' },
+    { keywords: ['cliente', 'ventas', 'servicio'], title: 'Representante de servicio al cliente' },
+    { keywords: ['proyecto', 'administracion', 'coordinador'], title: 'Coordinador/a de proyectos' },
+  ];
+  const explicitMatch = professionMatches.find(({ keywords }) =>
+    keywords.some((keyword) => normalizedProfession.includes(normalize(keyword))),
+  );
+  if (explicitMatch) {
+    return ROLE_REQUIREMENTS.find((role) => role.title === explicitMatch.title) ?? ROLE_REQUIREMENTS[0];
+  }
+
+  return ROLE_REQUIREMENTS
+    .map((role) => ({
+      role,
+      score: normalize(role.title).split(/\W+/).filter((word) =>
+        word.length > 3 && normalizedProfession.includes(word),
+      ).length,
+    }))
+    .sort((a, b) => b.score - a.score)[0]?.role ?? ROLE_REQUIREMENTS[0];
+}
+
 export async function POST(request: NextRequest) {
   const rateLimit = checkRateLimit(`job-radar:${getClientIp(request)}`, 12);
   if (!rateLimit.allowed) {
@@ -68,6 +98,15 @@ export async function POST(request: NextRequest) {
     experience: years ? `${years[1]} años (extraído del CV)` : 'No se detectó duración; revisar CV',
     education: education?.[0] ?? 'No se detectó formación; revisar CV',
   };
+  const relevantRole = getRelevantRole(profession);
+  const skillGap = relevantRole.keywords.filter((skill) =>
+    !normalizedCv.includes(normalize(skill)),
+  );
+  const interviewQuestions = [
+    `¿Cómo has utilizado ${relevantRole.keywords[0]} en un proyecto o experiencia real?`,
+    `Para el puesto de ${relevantRole.title}, ¿cómo abordarías un problema técnico que no hayas resuelto antes?`,
+    'Cuéntame sobre una ocasión en la que colaboraste con otras personas para resolver un reto y qué aprendiste.',
+  ];
 
   const query = new URLSearchParams({ keywords: profession, location: country });
   const jobs = ROLE_REQUIREMENTS.map((role, index) => {
@@ -100,6 +139,8 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     profile,
+    skillGap,
+    interviewQuestions,
     jobs: jobs.length > 0 ? jobs : [{
       id: 'search',
       title: `Vacantes de ${profession}`,

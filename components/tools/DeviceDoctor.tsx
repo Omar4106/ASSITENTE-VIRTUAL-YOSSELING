@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Clipboard, Download, HardDrive, ShieldCheck, Wrench } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Battery, Check, Clipboard, Download, HardDrive, Network, Settings, ShieldCheck, Wrench } from 'lucide-react';
 
 type Device = 'windows' | 'linux' | 'laptop' | 'android' | 'tablet';
 type Issue = 'slow' | 'storage' | 'network' | 'drivers' | 'battery';
@@ -28,6 +29,38 @@ interface GeneratedGuide {
   steps: string[];
   launcherFilename?: string;
   launcherContents?: string;
+}
+
+interface BatteryManagerLike extends EventTarget {
+  charging: boolean;
+  level: number;
+  chargingTime: number;
+  dischargingTime: number;
+}
+
+interface NetworkInformationLike extends EventTarget {
+  type?: string;
+  effectiveType?: string;
+  downlink?: number;
+}
+
+interface NavigatorWithDeviceInfo extends Navigator {
+  getBattery?: () => Promise<BatteryManagerLike>;
+  connection?: NetworkInformationLike;
+}
+
+interface BatteryStatus {
+  level: number;
+  charging: boolean;
+  remainingTime: string;
+}
+
+function formatBatteryTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return 'No disponible';
+  const totalMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours ? `${hours} h ${minutes} min` : `${minutes} min`;
 }
 
 function createWindowsGuide(issue: Issue): GeneratedGuide {
@@ -156,6 +189,11 @@ export function DeviceDoctor() {
   const [device, setDevice] = useState<Device>('windows');
   const [issue, setIssue] = useState<Issue>('slow');
   const [copied, setCopied] = useState(false);
+  const [battery, setBattery] = useState<BatteryStatus | null>(null);
+  const [online, setOnline] = useState(false);
+  const [networkType, setNetworkType] = useState('Información de red no disponible');
+  const [settingsMessage, setSettingsMessage] = useState('');
+  const [isNative, setIsNative] = useState(false);
   const guide = useMemo(
     () => device === 'linux' ? createLinuxGuide(issue) : device === 'android' || device === 'tablet' ? createAndroidGuide(issue) : createWindowsGuide(issue),
     [device, issue],
@@ -163,7 +201,78 @@ export function DeviceDoctor() {
 
   useEffect(() => {
     setIsMounted(true);
+    setIsNative(Capacitor.isNativePlatform());
+
+    const navigatorWithInfo = navigator as NavigatorWithDeviceInfo;
+    const updateOnline = () => setOnline(navigator.onLine);
+    const updateNetwork = () => {
+      const connection = navigatorWithInfo.connection;
+      const details = [connection?.type, connection?.effectiveType]
+        .filter((value): value is string => Boolean(value));
+      setNetworkType(details.length ? details.join(' · ') : 'Tipo de red no disponible');
+    };
+    updateOnline();
+    updateNetwork();
+    window.addEventListener('online', updateOnline);
+    window.addEventListener('offline', updateOnline);
+    navigatorWithInfo.connection?.addEventListener('change', updateNetwork);
+
+    let batteryManager: BatteryManagerLike | null = null;
+    let disposed = false;
+    const updateBattery = () => {
+      if (!batteryManager) return;
+      setBattery({
+        level: Math.round(batteryManager.level * 100),
+        charging: batteryManager.charging,
+        remainingTime: formatBatteryTime(
+          batteryManager.charging ? batteryManager.chargingTime : batteryManager.dischargingTime,
+        ),
+      });
+    };
+    if (navigatorWithInfo.getBattery) {
+      void navigatorWithInfo.getBattery().then((manager) => {
+        if (disposed) return;
+        batteryManager = manager;
+        updateBattery();
+        manager.addEventListener('chargingchange', updateBattery);
+        manager.addEventListener('levelchange', updateBattery);
+        manager.addEventListener('chargingtimechange', updateBattery);
+        manager.addEventListener('dischargingtimechange', updateBattery);
+      }).catch((batteryError: unknown) => {
+        console.info('[DeviceDoctor] Battery status is unavailable:', batteryError);
+      });
+    }
+
+    return () => {
+      disposed = true;
+      window.removeEventListener('online', updateOnline);
+      window.removeEventListener('offline', updateOnline);
+      navigatorWithInfo.connection?.removeEventListener('change', updateNetwork);
+      if (batteryManager) {
+        batteryManager.removeEventListener('chargingchange', updateBattery);
+        batteryManager.removeEventListener('levelchange', updateBattery);
+        batteryManager.removeEventListener('chargingtimechange', updateBattery);
+        batteryManager.removeEventListener('dischargingtimechange', updateBattery);
+      }
+    };
   }, []);
+
+  const openSystemSettings = (settingsPage: 'general' | 'app') => {
+    if (typeof window === 'undefined') return;
+    const platform = Capacitor.getPlatform();
+    if (platform === 'android') {
+      const intent = settingsPage === 'app'
+        ? 'intent://settings#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;data=package:com.yosseling.app;end'
+        : 'intent://settings#Intent;action=android.settings.SETTINGS;end';
+      window.location.assign(intent);
+      return;
+    }
+    if (platform === 'ios') {
+      window.location.assign('app-settings:');
+      return;
+    }
+    setSettingsMessage('Por seguridad, el navegador no puede abrir los ajustes del dispositivo. Usa la aplicación de Configuración del sistema.');
+  };
 
   const copy = async () => {
     if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
@@ -216,6 +325,48 @@ export function DeviceDoctor() {
             {ISSUES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
         </label>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-green-300/15 bg-green-300/[0.04] p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-white">
+            <Battery size={16} className="text-green-200" /> Batería
+          </div>
+          {battery ? (
+            <div className="mt-2 text-xs text-white/65">
+              <p>{battery.level}% · {battery.charging ? 'Cargando' : 'Con batería'}</p>
+              <p className="mt-1 text-white/45">Tiempo {battery.charging ? 'hasta carga' : 'restante'}: {battery.remainingTime}</p>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full bg-green-300 transition-[width]" style={{ width: `${battery.level}%` }} />
+              </div>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-white/50">La lectura exacta de batería no está disponible en este navegador o dispositivo.</p>
+          )}
+        </div>
+        <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.04] p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-white">
+            <Network size={16} className="text-cyan-200" /> Conexión
+          </div>
+          <p className={`mt-2 text-xs ${online ? 'text-green-200' : 'text-red-200'}`}>{online ? 'Internet disponible' : 'Sin conexión'}</p>
+          <p className="mt-1 text-xs text-white/45">{networkType}</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-purple-300/15 bg-purple-300/[0.04] p-4">
+        <h3 className="flex items-center gap-2 text-sm font-medium text-white"><Settings size={15} className="text-purple-200" /> Ajustes del dispositivo</h3>
+        <p className="mt-1 text-xs text-white/50">Los permisos de cámara y micrófono se solicitan al activar esas funciones.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={() => openSystemSettings('general')} className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/75 transition-colors hover:bg-white/10">
+            Ajustes del sistema
+          </button>
+          {isNative && (
+            <button type="button" onClick={() => openSystemSettings('app')} className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/75 transition-colors hover:bg-white/10">
+              Permisos de Yosseling
+            </button>
+          )}
+        </div>
+        {settingsMessage && <p role="status" className="mt-2 text-xs text-amber-100/70">{settingsMessage}</p>}
       </div>
 
       <div className="rounded-xl border border-amber-300/15 bg-amber-300/[0.04] p-4">

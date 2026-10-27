@@ -1,0 +1,9 @@
+{
+  "appId": "com.yosseling.app",
+  "appName": "Yosseling",
+  "webDir": "capacitor-web",
+  "server": {
+    "url": "https://assitente-virtual-yosseling.vercel.app",
+    "cleartext": false
+  }
+}

@@ -3,10 +3,11 @@
 import { useState, useRef, useCallback, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Send, Square, Mic, MicOff, Paperclip, Image, FileText,
-  Printer, X, Maximize2, Minimize2
+  Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText,
+  Printer, X, Maximize2, Minimize2, Sparkles
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import type { ImageGenerationProvider } from '@/types';
 import { useVoice } from '@/hooks/useVoice';
 import { useFileUpload } from '@/hooks/useFileUpload';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,9 @@ export function InputBar() {
   const [input, setInput] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState('');
+  const [imageProvider, setImageProvider] = useState<Exclude<ImageGenerationProvider, 'auto'>>('fal');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +40,18 @@ export function InputBar() {
     clearPendingFiles();
     await sendMessage(content, files.length > 0 ? files : undefined);
   }, [input, pendingFiles, isStreaming, clearPendingFiles, sendMessage]);
+
+  const handleGenerateImage = useCallback(async () => {
+    const prompt = imagePrompt.trim();
+    if (prompt.length < 3 || isStreaming) return;
+    setIsImageDialogOpen(false);
+    setImagePrompt('');
+    await sendMessage(
+      `Genera una imagen de ${prompt}`,
+      undefined,
+      { imageProvider },
+    );
+  }, [imagePrompt, imageProvider, isStreaming, sendMessage]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -144,8 +160,9 @@ export function InputBar() {
         {/* Toolbar */}
         <div className="flex items-center justify-between px-3 pb-3 gap-2">
           <div className="flex items-center gap-1">
+            <ToolBtn icon={<Sparkles size={15} />} label="Generar imagen" onClick={() => setIsImageDialogOpen(true)} />
             <ToolBtn icon={<Paperclip size={15} />} label="Adjuntar" onClick={() => fileInputRef.current?.click()} />
-            <ToolBtn icon={<Image size={15} />} label="Imagen" onClick={() => imageInputRef.current?.click()} />
+            <ToolBtn icon={<ImageIcon size={15} />} label="Adjuntar imagen" onClick={() => imageInputRef.current?.click()} />
             <ToolBtn icon={<FileText size={15} />} label="Documento" onClick={() => fileInputRef.current?.click()} />
             <ToolBtn icon={<Printer size={15} />} label="Imprimir" onClick={handlePrint} />
             <ToolBtn
@@ -183,6 +200,64 @@ export function InputBar() {
       <p className="text-center text-[10px] text-[#B3B3B3]/40 mt-2">
         Yosseling puede cometer errores. Verifica la información importante.
       </p>
+
+      {isImageDialogOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setIsImageDialogOpen(false);
+        }}>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="image-generation-title"
+            className="w-full max-w-lg space-y-4 rounded-2xl border border-purple-300/15 bg-[#111018] p-5 shadow-2xl shadow-black/50"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 id="image-generation-title" className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Sparkles size={16} className="text-purple-200" /> Generar imagen
+                </h2>
+                <p className="mt-1 text-xs text-white/50">Elige velocidad o precisión. La clave del proveedor se mantiene en el servidor.</p>
+              </div>
+              <button type="button" onClick={() => setIsImageDialogOpen(false)} aria-label="Cerrar" className="rounded-lg p-1.5 text-white/50 hover:bg-white/10 hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+            <label className="block space-y-1.5 text-xs text-white/65">
+              Describe la imagen
+              <textarea
+                autoFocus
+                value={imagePrompt}
+                maxLength={4000}
+                rows={4}
+                onChange={(event) => setImagePrompt(event.target.value)}
+                placeholder="Ej.: una ilustración tropical al atardecer, con hojas luminosas y tonos violeta..."
+                className="w-full resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-purple-300/40"
+              />
+            </label>
+            <fieldset className="grid gap-2 sm:grid-cols-2">
+              <legend className="mb-2 text-xs text-white/65">Motor de generación</legend>
+              <label className={`cursor-pointer rounded-xl border p-3 transition-colors ${imageProvider === 'fal' ? 'border-cyan-300/30 bg-cyan-300/[0.08]' : 'border-white/10 bg-white/[0.02]'}`}>
+                <input type="radio" name="image-provider" value="fal" checked={imageProvider === 'fal'} onChange={() => setImageProvider('fal')} className="sr-only" />
+                <span className="block text-xs font-medium text-cyan-100">Rápida · Fal.ai</span>
+                <span className="mt-1 block text-[11px] text-white/50">FLUX Schnell para resultados ágiles</span>
+              </label>
+              <label className={`cursor-pointer rounded-xl border p-3 transition-colors ${imageProvider === 'huggingface' ? 'border-purple-300/30 bg-purple-300/[0.08]' : 'border-white/10 bg-white/[0.02]'}`}>
+                <input type="radio" name="image-provider" value="huggingface" checked={imageProvider === 'huggingface'} onChange={() => setImageProvider('huggingface')} className="sr-only" />
+                <span className="block text-xs font-medium text-purple-100">Precisa · Hugging Face</span>
+                <span className="mt-1 block text-[11px] text-white/50">FLUX Dev para más detalle</span>
+              </label>
+            </fieldset>
+            <button
+              type="button"
+              disabled={imagePrompt.trim().length < 3 || isStreaming}
+              onClick={() => void handleGenerateImage()}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-fuchsia-600 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              <Sparkles size={15} /> Crear imagen
+            </button>
+          </section>
+        </div>
+      )}
 
       {/* Hidden file inputs */}
       <input

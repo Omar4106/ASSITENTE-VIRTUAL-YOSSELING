@@ -71,19 +71,41 @@ Un diseño estético minimalista y futurista con:
 Si deseas clonar y ejecutar este proyecto localmente:
 
 ```bash
-# 1. Clonar el repositorio
-git clone [https://github.com/Omar4106/ASSITENTE-VIRTUAL-YOSSELING.git](https://github.com/Omar4106/ASSITENTE-VIRTUAL-YOSSELING.git)
-
-# 2. Entrar al directorio
+# Clonar e instalar dependencias
+git clone https://github.com/Omar4106/ASSITENTE-VIRTUAL-YOSSELING.git
 cd ASSITENTE-VIRTUAL-YOSSELING
-
-# 3. Instalar dependencias
 npm install
 
-# 4. Configurar variables de entorno
-cp .env.example .env.local
-
-# 5. Iniciar el servidor de desarrollo
+# Iniciar el servidor de desarrollo
 npm run dev
+```
 
+### Generación de imágenes
 
+Para habilitar los motores adicionales, crea `.env.local` en la raíz y configura las claves solo ahí para desarrollo; en producción, usa el almacén de variables secretas del despliegue. No uses prefijos `NEXT_PUBLIC_` ni incluyas claves en el código:
+
+```env
+HF_TOKEN=tu_token_de_huggingface
+FAL_KEY=tu_clave_de_fal
+```
+
+El motor rápido usa Fal.ai FLUX Schnell; el motor de mayor detalle usa Hugging Face FLUX Dev. Cada ruta devuelve un error explícito si su clave no está configurada.
+
+## 📱 Aplicación Android con Capacitor
+
+El proyecto Android usa Capacitor y abre la versión desplegada en Vercel dentro de una WebView nativa sin barra de navegador. La app requiere conexión para las funciones respaldadas por las rutas API de Next.js; el Service Worker puede conservar recursos visitados, pero no convierte las APIs remotas en funciones offline.
+
+Requisitos: Android Studio con Android SDK y un JDK compatible con la versión de Gradle del proyecto.
+
+```bash
+# Añadir la plataforma Android (solo la primera vez)
+npx cap add android
+
+# Sincronizar configuración y assets web
+npx cap sync android
+
+# Abrir el proyecto en Android Studio
+npx cap open android
+```
+
+En Android Studio, espera la sincronización de Gradle y usa **Build > Build Bundle(s) / APK(s) > Build APK(s)**. El APK de depuración se genera en `android/app/build/outputs/apk/debug/`.

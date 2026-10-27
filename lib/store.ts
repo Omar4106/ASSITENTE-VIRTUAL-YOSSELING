@@ -5,7 +5,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import type {
   Chat, Message, MemoryItem, AppSettings, Provider,
   SidebarView, RightPanelView, AttachedFile, AICenterData,
-  MemoryCategory, MemoryImportance, MemoryType,
+  MemoryCategory, MemoryImportance, MemoryType, ConversationSection, ImageGenerationProvider,
 } from '@/types';
 import {
   saveChat, getAllChats, deleteChat as dbDeleteChat, clearAllChats as dbClearChats,
@@ -71,6 +71,7 @@ interface AppState {
   searchQuery: string;
   aiCenterData: AICenterData | null;
   memoryIndicator: { type: 'save' | 'update' | 'delete'; title: string } | null;
+  activeConversationSection: ConversationSection;
 
   // Core
   initStore: () => Promise<void>;
@@ -79,7 +80,12 @@ interface AppState {
   deleteChat: (id: string) => Promise<void>;
   clearAllChats: () => Promise<void>;
   importChats: (chats: Chat[]) => Promise<void>;
-  sendMessage: (content: string, files?: AttachedFile[]) => Promise<void>;
+  sendMessage: (
+    content: string,
+    files?: AttachedFile[],
+    options?: { section?: ConversationSection; imageProvider?: ImageGenerationProvider },
+  ) => Promise<void>;
+  setConversationSection: (section: ConversationSection) => void;
   stopStreaming: () => void;
   editMessage: (chatId: string, messageId: string, content: string) => Promise<void>;
   deleteMessage: (chatId: string, messageId: string) => Promise<void>;
@@ -136,13 +142,14 @@ export const useAppStore = create<AppState>()(
     searchQuery: '',
     aiCenterData: null,
     memoryIndicator: null,
+    activeConversationSection: 'general',
 
     initStore: async () => {
       const settings = loadSettings();
       const [chats, memory] = await Promise.all([getAllChats(), getAllMemory()]);
       set({
         settings,
-        chats,
+        chats: chats.map((chat) => ({ ...chat, section: chat.section ?? 'general' })),
         memory,
         selectedModel: settings.defaultModel,
         selectedProvider: settings.defaultProvider,
@@ -151,6 +158,7 @@ export const useAppStore = create<AppState>()(
 
     createNewChat: () => {
       const { selectedModel, selectedProvider } = get();
+      const section = get().activeConversationSection;
       const chat: Chat = {
         id: genId(),
         title: 'Nuevo Chat',
@@ -159,18 +167,42 @@ export const useAppStore = create<AppState>()(
         updatedAt: Date.now(),
         model: selectedModel,
         provider: selectedProvider,
+        section,
       };
       set(s => ({ chats: [chat, ...s.chats], activeChatId: chat.id }));
       saveChat(chat);
     },
 
-    setActiveChat: (id) => set({ activeChatId: id }),
+    setActiveChat: (id) => {
+      const chat = get().chats.find((item) => item.id === id);
+      set({
+        activeChatId: id,
+        activeConversationSection: chat?.section ?? 'general',
+      });
+    },
+
+    setConversationSection: (section) => {
+      const latestChat = get().chats
+        .filter((chat) => (chat.section ?? 'general') === section)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      set({
+        activeConversationSection: section,
+        activeChatId: latestChat?.id ?? null,
+      });
+    },
 
     deleteChat: async (id) => {
       await dbDeleteChat(id);
       set(s => {
         const chats = s.chats.filter(c => c.id !== id);
-        return { chats, activeChatId: s.activeChatId === id ? (chats[0]?.id ?? null) : s.activeChatId };
+        if (s.activeChatId !== id) return { chats };
+        const nextChat = chats
+          .filter((chat) => (chat.section ?? 'general') === s.activeConversationSection)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
+        return {
+          chats,
+          activeChatId: nextChat?.id ?? null,
+        };
       });
     },
 
@@ -186,10 +218,16 @@ export const useAppStore = create<AppState>()(
       set(s => ({ chats: [...toAdd, ...s.chats].sort((a, b) => b.updatedAt - a.updatedAt) }));
     },
 
-    sendMessage: async (content, files) => {
+    sendMessage: async (content, files, options) => {
       const state = get();
-      let chat = state.chats.find(c => c.id === state.activeChatId) ?? null;
-      let chatId = state.activeChatId;
+      const section = options?.section ?? state.activeConversationSection;
+      let chat = state.chats.find(c => c.id === state.activeChatId && (c.section ?? 'general') === section) ?? null;
+      if (!chat) {
+        chat = state.chats
+          .filter((item) => (item.section ?? 'general') === section)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
+      }
+      let chatId: string | null = chat?.id ?? null;
 
       if (!chat) {
         const newChat: Chat = {
@@ -200,6 +238,7 @@ export const useAppStore = create<AppState>()(
           updatedAt: Date.now(),
           model: state.selectedModel,
           provider: state.selectedProvider,
+          section,
         };
         chatId = newChat.id;
         set(s => ({ chats: [newChat, ...s.chats], activeChatId: chatId }));
@@ -212,6 +251,7 @@ export const useAppStore = create<AppState>()(
         role: 'user',
         content,
         timestamp: Date.now(),
+        section,
         attachments: files?.length ? files : undefined,
       };
       const assistantMsg: Message = {
@@ -219,6 +259,7 @@ export const useAppStore = create<AppState>()(
         role: 'assistant',
         content: '',
         timestamp: Date.now(),
+        section,
         model: state.selectedModel,
         provider: state.selectedProvider,
         isStreaming: true,
@@ -273,7 +314,13 @@ export const useAppStore = create<AppState>()(
           }
 
           // Image generation works regardless of selected text model — route to /api/generate-image
-          const imageResponse = await fetch('/api/generate-image', {
+          const imageProvider = options?.imageProvider ?? 'auto';
+          const imageEndpoint = imageProvider === 'huggingface'
+            ? '/api/generate-image-hf'
+            : imageProvider === 'fal'
+              ? '/api/generate-image-fal'
+              : '/api/generate-image';
+          const imageResponse = await fetch(imageEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prompt: content }),
@@ -297,7 +344,7 @@ export const useAppStore = create<AppState>()(
               } : m),
               updatedAt: Date.now(),
             };
-            set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedImage : c), aiCenterData: s.aiCenterData ? { ...s.aiCenterData, status: ok ? 'success' : 'error', providerUsed: 'openai' } : null }));
+            set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedImage : c), aiCenterData: s.aiCenterData ? { ...s.aiCenterData, status: ok ? 'success' : 'error', providerUsed: null } : null }));
             await saveChat(savedImage);
           }
           return;
