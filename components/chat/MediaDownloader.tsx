@@ -51,7 +51,7 @@ export function MediaDownloader({ url }: MediaDownloaderProps) {
   const [state, setState] = useState<DownloadState>('idle');
   const [media, setMedia] = useState<ExtractedMedia | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const { sendMessage, activeChatId } = useAppStore();
+  const { sendMessage } = useAppStore();
 
   const platform = useMemo(() => detectPlatform(url), [url]);
   const isLoading = state === 'loading-mp4' || state === 'loading-mp3' || state === 'loading-analysis';
@@ -69,7 +69,7 @@ export function MediaDownloader({ url }: MediaDownloaderProps) {
 
       const data = (await res.json()) as { analysis?: string; error?: string };
 
-      if (res.ok && data.analysis && activeChatId && sendMessage) {
+      if (res.ok && data.analysis && sendMessage) {
         await sendMessage(`Analiza este video: ${url}\n\nResultado del análisis:\n${data.analysis}`);
       } else {
         setErrorMsg(data.error ?? 'No pude analizar este video ahora mismo.');
@@ -83,7 +83,7 @@ export function MediaDownloader({ url }: MediaDownloaderProps) {
     }
 
     setState('idle');
-  }, [url, activeChatId, sendMessage]);
+  }, [url, sendMessage]);
 
   /** Resolve native MP4/MP3 via API/JSON and force a device download (no iframes). */
   const triggerNativeDownload = useCallback(async (format: 'mp4' | 'mp3') => {

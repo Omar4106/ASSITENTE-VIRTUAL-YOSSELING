@@ -16,6 +16,7 @@ export function Header({ onOpenTools, isToolsOpen }: HeaderProps) {
   const {
     settings, updateSettings,
     sidebarOpen, setSidebarOpen,
+    authUser,
   } = useAppStore();
   const isDark = settings.theme === 'dark';
 
@@ -84,7 +85,7 @@ export function Header({ onOpenTools, isToolsOpen }: HeaderProps) {
         <div className="hidden items-center gap-2 sm:flex">
           {settings.userAvatar ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={settings.userAvatar} alt={settings.userName} className="w-8 h-8 rounded-full object-cover border border-white/10" />
+            <img src={settings.userAvatar} alt={authUser?.name ?? settings.userName} title={authUser?.name ?? settings.userName} className="w-8 h-8 rounded-full object-cover border border-white/10" />
           ) : (
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center border border-white/10">
               <User size={14} className="text-white" />

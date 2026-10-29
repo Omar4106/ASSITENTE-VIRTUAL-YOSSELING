@@ -55,6 +55,8 @@ function parseReasoning(content: string): { reasoning: string; cleanContent: str
 interface AppState {
   chats: Chat[];
   activeChatId: string | null;
+  authUser: { id: string; email: string | null; name: string | null; avatarUrl: string | null; role: string | null } | null;
+  setAuthUser: (user: AppState['authUser']) => void;
   sidebarOpen: boolean;
   rightPanelOpen: boolean;
   sidebarView: SidebarView;
@@ -133,6 +135,8 @@ export const useAppStore = create<AppState>()(
   subscribeWithSelector((set, get) => ({
     chats: [],
     activeChatId: null,
+    authUser: null,
+    setAuthUser: (authUser) => set({ authUser }),
     sidebarOpen: true,
     rightPanelOpen: true,
     sidebarView: 'chats',
@@ -246,11 +250,6 @@ export const useAppStore = create<AppState>()(
         ?? (isImageGenerationRequest(content) ? 'image' : undefined);
       const section = options?.section ?? state.activeConversationSection;
       let chat = state.chats.find(c => c.id === state.activeChatId && (c.section ?? 'general') === section) ?? null;
-      if (!chat) {
-        chat = state.chats
-          .filter((item) => (item.section ?? 'general') === section)
-          .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
-      }
       let chatId: string | null = chat?.id ?? null;
 
       if (!chat) {

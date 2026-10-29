@@ -12,6 +12,11 @@ const ServiceWorkerRegistration = dynamic(
   { ssr: false }
 );
 
+const AuthSessionSync = dynamic(
+  () => import('@/components/auth/AuthSessionSync'),
+  { ssr: false }
+);
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://asistente-virtual-yosseling.vercel.app'),
   title: 'Yosseling — Tu Asistente Inteligente',
@@ -43,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" className="dark" suppressHydrationWarning>
       <body className="font-sans dark" suppressHydrationWarning>
+        <AuthSessionSync />
         <CapacitorAuthListener />
         <ServiceWorkerRegistration />
         {children}

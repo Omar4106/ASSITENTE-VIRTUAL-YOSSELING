@@ -127,7 +127,7 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
     chats, activeChatId, sidebarView, setSidebarView,
     createNewChat, selectedModel,
     settings, searchQuery, setSearchQuery,
-    setSidebarOpen,
+    setSidebarOpen, authUser,
   } = useAppStore();
 
   const [collapsed, setCollapsed] = useState(false);
@@ -348,10 +348,10 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
               )}
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-white truncate">{settings.userName}</p>
-                <p className="text-[10px] text-[#B3B3B3]">{isSignedIn ? 'Cuenta conectada' : 'Modo invitado'}</p>
+                <p className="text-[10px] text-[#B3B3B3]">{authUser ? 'Cuenta conectada' : 'Modo invitado'}</p>
               </div>
             </div>
-            {!isSignedIn && (
+            {!authUser && (
               <button
                 type="button"
                 onClick={() => window.location.assign('/login?next=/')}
