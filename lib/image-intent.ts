@@ -1,7 +1,28 @@
 const IMAGE_REQUEST_PATTERN = /(?:genera(?:r)?|crear?|dibuja(?:r)?|imagina|ilustra(?:r)?|pinta(?:r)?|dise[ñn]a(?:r)?|haz(?:me)?|hacer).*?(?:imagen|ilustraci[oó]n|dibujo|retrato|escena|logo|p[oó]ster|poster|fondo|wallpaper|avatar|foto|gr[aá]fico|gr[aá]fica)|^(?:imagina|dibuja|pinta|ilustra)\b/i;
+const VIDEO_MEDIA_PATTERN = /\b(?:videos?|clips?|movimiento|grabaci[oó]n|grabar|grabado|audiovisual(?:es)?|pel[ií]culas?|films?|animacion(?:es)?|generaci[oó]n de video)\b/i;
+const AUDIO_MEDIA_PATTERN = /\b(?:audios?|cancion(?:es)?|pistas?|musica|sonidos?)\b/i;
+const IMAGE_MEDIA_PATTERN = /\b(?:imagen(?:es)?|ilustracion(?:es)?|dibujos?|retratos?|escenas?|logos?|posters?|fondos?|wallpapers?|avatares?|fotos?|graficos?)\b/i;
+const MEDIA_CREATION_ACTION_PATTERN = /\b(?:gener\w*|cre\w*|haz(?:me)?|hacer|produc\w*|compon\w*|dibu\w*|ilustra\w*|pinta\w*|disen\w*|anima\w*|grab\w*|dame|realiza\w*|quiero)\b/i;
+const MEDIA_EXPLANATION_PATTERN = /\b(?:explic\w*|ensena\w*|tutorial|pasos|como\s+(?:se\s+)?(?:genera\w*|crea\w*|hace\w*|produce\w*))\b/i;
+
+export type MediaGenerationMode = 'image' | 'audio' | 'video';
+
+export function detectMediaGenerationIntent(text: string): MediaGenerationMode | null {
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (
+    !normalized ||
+    MEDIA_EXPLANATION_PATTERN.test(normalized) ||
+    !MEDIA_CREATION_ACTION_PATTERN.test(normalized)
+  ) return null;
+
+  if (VIDEO_MEDIA_PATTERN.test(normalized)) return 'video';
+  if (AUDIO_MEDIA_PATTERN.test(normalized)) return 'audio';
+  if (IMAGE_MEDIA_PATTERN.test(normalized)) return 'image';
+  return null;
+}
 
 export function isImageGenerationRequest(text: string): boolean {
-  return IMAGE_REQUEST_PATTERN.test(text.trim());
+  return detectMediaGenerationIntent(text) === 'image' || IMAGE_REQUEST_PATTERN.test(text.trim());
 }
 
 const OFFLINE_INTENT_PATTERN = /(?:sin\s*(?:conexi[oó]n|internet|se[ñn]al|red)|offline|modo\s*local|sin\s*red|desconectad|sin\s*internt|puedes?\s+(?:funcionar|responder|trabajar)\s+sin|usar\s+sin\s*(?:inter|conexi|se[ñn]al)|descarga\s+(?:el\s+)?modo\s*local|c[oó]mo\s+te\s+uso\s+sin)/i;

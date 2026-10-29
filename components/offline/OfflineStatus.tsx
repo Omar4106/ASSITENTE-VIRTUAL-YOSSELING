@@ -9,13 +9,21 @@ import { useState, useEffect } from 'react';
 export function OfflineStatus() {
   const { ollamaAvailable, pinging } = useConnectivity();
   const { settings, updateSettings } = useAppStore();
+  const [isMounted, setIsMounted] = useState(false);
   const [currentMode, setCurrentMode] = useState<'cloud' | 'local'>('cloud');
+  const [config, setConfig] = useState({
+    backend: 'ollama',
+    ollamaUrl: 'http://localhost:11434',
+    ollamaModel: 'qwen2.5:7b',
+    configured: false,
+  });
 
   useEffect(() => {
+    setConfig(getOfflineConfig());
     setCurrentMode(getRuntimeMode());
+    setIsMounted(true);
   }, [settings.runtimeMode]);
 
-  const config = getOfflineConfig();
   const localReady = ollamaAvailable === true || config.configured;
   const canToggleLocal = localReady;
 
@@ -27,6 +35,8 @@ export function OfflineStatus() {
   };
 
   const isLocal = currentMode === 'local';
+
+  if (!isMounted) return null;
 
   return (
     <button

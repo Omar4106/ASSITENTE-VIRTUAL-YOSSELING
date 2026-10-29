@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface Particle {
   x: number; y: number;
@@ -48,12 +48,18 @@ function spawnParticle(W: number, H: number, intensity: number): Particle {
 }
 
 export function ParticleField({ isListening, isStreaming, getMousePos }: Props) {
+  const [isMounted, setIsMounted] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
   const particlesRef = useRef<Particle[]>([]);
   const lastSpawnRef = useRef(0);
 
   useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -166,7 +172,9 @@ export function ParticleField({ isListening, isStreaming, getMousePos }: Props) 
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener('resize', resize);
     };
-  }, [isListening, isStreaming, getMousePos]);
+  }, [getMousePos, isListening, isMounted, isStreaming]);
+
+  if (!isMounted) return null;
 
   return (
     <canvas

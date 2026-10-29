@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getClientIp, getImageRateLimit, sanitizeInput } from '@/lib/security';
+import { randomUUID } from 'node:crypto';
+import { getClientIp, getImageRateLimit, imagePromptSchema } from '@/lib/security';
 import { getEnvVar } from '@/lib/env';
+import { logImagePromptMetadata, optimizeImagePrompt } from '@/lib/image-prompt';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,12 +29,15 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ success: false, error: 'La solicitud debe contener JSON válido.' }, { status: 400 });
   }
-  const prompt = body && typeof body === 'object' && 'prompt' in body && typeof body.prompt === 'string'
-    ? sanitizeInput(body.prompt.trim())
-    : '';
-  if (prompt.length < 3 || prompt.length > 4000) {
+  const parsed = imagePromptSchema.safeParse(
+    body && typeof body === 'object' && 'prompt' in body ? body.prompt : undefined,
+  );
+  if (!parsed.success) {
     return NextResponse.json({ success: false, error: 'Escribe una descripción de imagen de 3 a 4000 caracteres.' }, { status: 400 });
   }
+  const prompt = parsed.data;
+  const optimized = optimizeImagePrompt(prompt);
+  logImagePromptMetadata('generate-image-fal', randomUUID(), optimized, 'fal-flux-schnell');
 
   const apiKey = getEnvVar('FAL_KEY') ?? getEnvVar('FAL_API_KEY');
   if (!apiKey) {
@@ -47,10 +52,13 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        prompt,
+        prompt: optimized.prompt,
         image_size: 'square_hd',
         num_images: 1,
-        output_format: 'jpeg',
+        output_format: 'png',
+        num_inference_steps: 28,
+        guidance_scale: 7.5,
+        enable_safety_checker: true,
       }),
       signal: AbortSignal.timeout(75_000),
     });

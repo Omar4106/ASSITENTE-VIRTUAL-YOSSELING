@@ -4,7 +4,8 @@ import { useState, useRef, useCallback, KeyboardEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText,
-  Printer, X, Maximize2, Minimize2, Sparkles
+  Printer, X, Maximize2, Minimize2, Sparkles, WandSparkles, Music2, Film, Camera,
+  MoreHorizontal
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import type { ImageGenerationProvider } from '@/types';
@@ -24,12 +25,17 @@ export function InputBar() {
   const [input, setInput] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
+  const [isMediaDialogOpen, setIsMediaDialogOpen] = useState(false);
+  const [mediaMode, setMediaMode] = useState<'image' | 'edit-image' | 'audio' | 'video'>('image');
+  const [outputMode, setOutputMode] = useState<'text' | 'image' | 'audio' | 'video'>('text');
   const [imagePrompt, setImagePrompt] = useState('');
+  const [audioLyrics, setAudioLyrics] = useState('');
+  const [mediaError, setMediaError] = useState('');
   const [imageProvider, setImageProvider] = useState<Exclude<ImageGenerationProvider, 'auto'>>('fal');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = useCallback(async () => {
     const content = input.trim();
@@ -37,21 +43,62 @@ export function InputBar() {
     if (isStreaming) return;
     setInput('');
     const files = [...pendingFiles];
+    const sourceImage = files.find(file => file.type.startsWith('image/') && file.dataUrl)?.dataUrl;
+    const normalized = content.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const editRequest = /\b(?:edita(?:r|la|lo)?|transforma(?:r|la|lo)?|convierte(?:r|la|lo)?|estilo anime|estilo dibujo|haz(?:la|lo)?\s+(?:en|estilo)|dibujala|dibujalo)\b/.test(normalized);
+    const videoRequest = /\b(?:video|clip|anima(?:r|la|lo)?|animacion)\b/.test(normalized);
+    const detectedMediaMode = sourceImage && videoRequest
+      ? 'video'
+      : sourceImage && editRequest
+        ? 'edit-image'
+        : undefined;
     clearPendingFiles();
-    await sendMessage(content, files.length > 0 ? files : undefined);
+    await sendMessage(content, files.length > 0 ? files : undefined, detectedMediaMode
+      ? { mediaMode: detectedMediaMode, imageDataUrl: sourceImage }
+      : undefined);
   }, [input, pendingFiles, isStreaming, clearPendingFiles, sendMessage]);
 
-  const handleGenerateImage = useCallback(async () => {
+  const openMediaDialog = useCallback((mode: typeof mediaMode) => {
+    setMediaMode(mode);
+    setOutputMode(mode === 'edit-image' ? 'image' : mode);
+    setMediaError('');
+    setImagePrompt('');
+    setIsMediaDialogOpen(true);
+  }, []);
+
+  const handleOutputModeChange = (mode: 'text' | 'image' | 'audio' | 'video') => {
+    setOutputMode(mode);
+    if (mode !== 'text') openMediaDialog(mode);
+  };
+
+  const handleOutputModeSelect = (value: string) => {
+    if (value === 'text' || value === 'image' || value === 'audio' || value === 'video') {
+      handleOutputModeChange(value);
+    }
+  };
+
+  const handleGenerateMedia = useCallback(async () => {
     const prompt = imagePrompt.trim();
     if (prompt.length < 3 || isStreaming) return;
-    setIsImageDialogOpen(false);
+    const files = [...pendingFiles];
+    const sourceImage = files.find(file => file.type.startsWith('image/') && file.dataUrl)?.dataUrl;
+    if (mediaMode === 'edit-image' && !sourceImage) {
+      setMediaError('Adjunta primero una imagen PNG, JPEG o WebP.');
+      return;
+    }
+
+    const content = mediaMode === 'image' ? `Genera una imagen de ${prompt}` : prompt;
+    setIsMediaDialogOpen(false);
     setImagePrompt('');
-    await sendMessage(
-      `Genera una imagen de ${prompt}`,
-      undefined,
-      { imageProvider },
-    );
-  }, [imagePrompt, imageProvider, isStreaming, sendMessage]);
+    setMediaError('');
+    clearPendingFiles();
+    await sendMessage(content, files.length > 0 ? files : undefined, {
+      mediaMode,
+      imageProvider,
+      ...(sourceImage && (mediaMode === 'edit-image' || mediaMode === 'video') ? { imageDataUrl: sourceImage } : {}),
+      ...(mediaMode === 'audio' && audioLyrics.trim() ? { lyrics: audioLyrics.trim() } : {}),
+    });
+  }, [imagePrompt, pendingFiles, mediaMode, imageProvider, audioLyrics, isStreaming, clearPendingFiles, sendMessage]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -88,7 +135,7 @@ export function InputBar() {
   };
 
   return (
-    <div className="px-4 pb-4 pt-2">
+    <div className="px-3 pb-3 pt-2 sm:px-4 sm:pb-4">
       {isProcessing && (
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-200">
           <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />
@@ -158,24 +205,46 @@ export function InputBar() {
         />
 
         {/* Toolbar */}
-        <div className="flex items-center justify-between px-3 pb-3 gap-2">
-          <div className="flex items-center gap-1">
-            <ToolBtn icon={<Sparkles size={15} />} label="Generar imagen" onClick={() => setIsImageDialogOpen(true)} />
-            <ToolBtn icon={<Paperclip size={15} />} label="Adjuntar" onClick={() => fileInputRef.current?.click()} />
-            <ToolBtn icon={<ImageIcon size={15} />} label="Adjuntar imagen" onClick={() => imageInputRef.current?.click()} />
-            <ToolBtn icon={<FileText size={15} />} label="Documento" onClick={() => fileInputRef.current?.click()} />
-            <ToolBtn icon={<Printer size={15} />} label="Imprimir" onClick={handlePrint} />
+        <div className="flex min-w-0 items-center gap-1.5 px-2 pb-2 sm:gap-2 sm:px-3 sm:pb-3">
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <label className="sr-only" htmlFor="chat-output-mode">Tipo de respuesta</label>
+            <select
+              id="chat-output-mode"
+              value={outputMode}
+              onChange={(event) => handleOutputModeSelect(event.target.value)}
+              className="h-9 max-w-[86px] shrink-0 rounded-lg border border-purple-300/15 bg-[#171523] px-1.5 text-[10px] text-white/80 outline-none focus:border-purple-300/40 sm:max-w-none sm:px-2 sm:text-xs"
+            >
+              <option value="text">Texto</option>
+              <option value="image">Imagen</option>
+              <option value="audio">Audio</option>
+              <option value="video">Video</option>
+            </select>
+            <ToolBtn icon={<Paperclip size={15} />} label="Adjuntar archivos" onClick={() => fileInputRef.current?.click()} />
             <ToolBtn
               icon={isListening ? <MicOff size={15} className="text-red-400" /> : <Mic size={15} />}
               label={isListening ? 'Detener voz' : 'Micrófono'}
               onClick={handleVoice}
               active={isListening}
             />
-            <ToolBtn
-              icon={expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-              label={expanded ? 'Contraer' : 'Expandir'}
-              onClick={() => setExpanded(!expanded)}
-            />
+            <details className="group relative shrink-0">
+              <summary
+                aria-label="Más opciones"
+                title="Más opciones"
+                className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-lg text-[#B3B3B3] transition-colors hover:bg-white/5 hover:text-white [&::-webkit-details-marker]:hidden"
+              >
+                <MoreHorizontal size={17} />
+              </summary>
+              <div className="absolute bottom-full left-0 z-30 mb-2 flex min-w-44 flex-col gap-1 rounded-xl border border-white/10 bg-[#111018] p-1.5 shadow-xl shadow-black/40">
+                <ToolMenuBtn icon={<ImageIcon size={15} />} label="Adjuntar imagen" onClick={() => imageInputRef.current?.click()} />
+                <ToolMenuBtn icon={<Camera size={15} />} label="Tomar una foto" onClick={() => cameraInputRef.current?.click()} />
+                <ToolMenuBtn icon={<Printer size={15} />} label="Imprimir" onClick={handlePrint} />
+                <ToolMenuBtn
+                  icon={expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                  label={expanded ? 'Contraer editor' : 'Expandir editor'}
+                  onClick={() => setExpanded(!expanded)}
+                />
+              </div>
+            </details>
           </div>
 
           <motion.button
@@ -184,7 +253,7 @@ export function InputBar() {
             onClick={isStreaming ? stopStreaming : handleSend}
             disabled={!isStreaming && !input.trim() && pendingFiles.length === 0}
             className={cn(
-              'flex items-center justify-center w-9 h-9 rounded-xl transition-all',
+              'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-all',
               isStreaming
                 ? 'bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30'
                 : (input.trim() || pendingFiles.length > 0)
@@ -201,59 +270,106 @@ export function InputBar() {
         Yosseling puede cometer errores. Verifica la información importante.
       </p>
 
-      {isImageDialogOpen && (
+      {isMediaDialogOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setIsImageDialogOpen(false);
+          if (event.target === event.currentTarget) setIsMediaDialogOpen(false);
         }}>
           <section
             role="dialog"
             aria-modal="true"
-            aria-labelledby="image-generation-title"
-            className="w-full max-w-lg space-y-4 rounded-2xl border border-purple-300/15 bg-[#111018] p-5 shadow-2xl shadow-black/50"
+            aria-labelledby="media-generation-title"
+            className="max-h-[90dvh] w-full max-w-lg space-y-4 overflow-y-auto rounded-2xl border border-purple-300/15 bg-[#111018] p-4 shadow-2xl shadow-black/50 sm:p-5"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 id="image-generation-title" className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <Sparkles size={16} className="text-purple-200" /> Generar imagen
+                <h2 id="media-generation-title" className="flex items-center gap-2 text-sm font-semibold text-white">
+                  {mediaMode === 'audio' ? <Music2 size={16} className="text-cyan-200" />
+                    : mediaMode === 'video' ? <Film size={16} className="text-cyan-200" />
+                      : mediaMode === 'edit-image' ? <WandSparkles size={16} className="text-purple-200" />
+                        : <Sparkles size={16} className="text-purple-200" />}
+                  {mediaMode === 'audio' ? 'Generar audio'
+                    : mediaMode === 'video' ? 'Generar video'
+                      : mediaMode === 'edit-image' ? 'Transformar imagen'
+                        : 'Generar imagen'}
                 </h2>
-                <p className="mt-1 text-xs text-white/50">Elige velocidad o precisión. La clave del proveedor se mantiene en el servidor.</p>
+                <p className="mt-1 text-xs text-white/50">
+                  {mediaMode === 'edit-image' ? 'Conserva el contenido principal de la imagen adjunta.'
+                    : mediaMode === 'audio' ? 'Crea una pista de hasta 20 segundos con Fal.ai.'
+                      : mediaMode === 'video' ? 'Crea un clip corto; usa la imagen adjunta como referencia opcional.'
+                        : 'Elige velocidad o precisión. La clave se mantiene en el servidor.'}
+                </p>
               </div>
-              <button type="button" onClick={() => setIsImageDialogOpen(false)} aria-label="Cerrar" className="rounded-lg p-1.5 text-white/50 hover:bg-white/10 hover:text-white">
+              <button type="button" onClick={() => setIsMediaDialogOpen(false)} aria-label="Cerrar" className="rounded-lg p-1.5 text-white/50 hover:bg-white/10 hover:text-white">
                 <X size={16} />
               </button>
             </div>
             <label className="block space-y-1.5 text-xs text-white/65">
-              Describe la imagen
+              {mediaMode === 'audio' ? 'Describe el audio'
+                : mediaMode === 'video' ? 'Describe el video'
+                  : mediaMode === 'edit-image' ? '¿Cómo quieres transformar la imagen?'
+                    : 'Describe la imagen'}
               <textarea
                 autoFocus
                 value={imagePrompt}
-                maxLength={4000}
-                rows={4}
+                maxLength={mediaMode === 'audio' || mediaMode === 'video' ? 1000 : 4000}
+                rows={3}
                 onChange={(event) => setImagePrompt(event.target.value)}
-                placeholder="Ej.: una ilustración tropical al atardecer, con hojas luminosas y tonos violeta..."
+                placeholder={mediaMode === 'audio' ? 'Ej.: melodía acústica alegre con voz masculina...'
+                  : mediaMode === 'video' ? 'Ej.: una toma cinematográfica de una playa al atardecer...'
+                    : mediaMode === 'edit-image' ? 'Ej.: transfórmala en una ilustración anime de líneas nítidas...'
+                      : 'Ej.: una ilustración tropical al atardecer, con hojas luminosas y tonos violeta...'}
                 className="w-full resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-purple-300/40"
               />
             </label>
-            <fieldset className="grid gap-2 sm:grid-cols-2">
-              <legend className="mb-2 text-xs text-white/65">Motor de generación</legend>
-              <label className={`cursor-pointer rounded-xl border p-3 transition-colors ${imageProvider === 'fal' ? 'border-cyan-300/30 bg-cyan-300/[0.08]' : 'border-white/10 bg-white/[0.02]'}`}>
-                <input type="radio" name="image-provider" value="fal" checked={imageProvider === 'fal'} onChange={() => setImageProvider('fal')} className="sr-only" />
-                <span className="block text-xs font-medium text-cyan-100">Rápida · Fal.ai</span>
-                <span className="mt-1 block text-[11px] text-white/50">FLUX Schnell para resultados ágiles</span>
+            {mediaMode === 'audio' && (
+              <label className="block space-y-1.5 text-xs text-white/65">
+                Letra opcional (si la escribes, el modelo intentará cantarla)
+                <textarea value={audioLyrics} maxLength={3000} rows={2} onChange={(event) => setAudioLyrics(event.target.value)} placeholder="Escribe aquí la letra..." className="w-full resize-y rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-purple-300/40" />
               </label>
-              <label className={`cursor-pointer rounded-xl border p-3 transition-colors ${imageProvider === 'huggingface' ? 'border-purple-300/30 bg-purple-300/[0.08]' : 'border-white/10 bg-white/[0.02]'}`}>
-                <input type="radio" name="image-provider" value="huggingface" checked={imageProvider === 'huggingface'} onChange={() => setImageProvider('huggingface')} className="sr-only" />
-                <span className="block text-xs font-medium text-purple-100">Precisa · Hugging Face</span>
-                <span className="mt-1 block text-[11px] text-white/50">FLUX Dev para más detalle</span>
-              </label>
-            </fieldset>
+            )}
+            {(mediaMode === 'edit-image' || mediaMode === 'video') && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <span className="text-xs text-white/60">
+                  {pendingFiles.some(file => file.type.startsWith('image/') && file.dataUrl)
+                    ? `Imagen lista: ${pendingFiles.find(file => file.type.startsWith('image/') && file.dataUrl)?.name}`
+                    : mediaMode === 'edit-image' ? 'Adjunta una imagen para transformarla.' : 'La imagen de referencia es opcional.'}
+                </span>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => imageInputRef.current?.click()} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/70 hover:bg-white/5">Elegir imagen</button>
+                  <button type="button" onClick={() => cameraInputRef.current?.click()} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-white/70 hover:bg-white/5">Cámara</button>
+                </div>
+              </div>
+            )}
+            {mediaMode === 'image' && (
+              <fieldset className="grid gap-2 sm:grid-cols-2">
+                <legend className="mb-2 text-xs text-white/65">Motor de generación</legend>
+                <label className={`cursor-pointer rounded-xl border p-3 transition-colors ${imageProvider === 'fal' ? 'border-cyan-300/30 bg-cyan-300/[0.08]' : 'border-white/10 bg-white/[0.02]'}`}>
+                  <input type="radio" name="image-provider" value="fal" checked={imageProvider === 'fal'} onChange={() => setImageProvider('fal')} className="sr-only" />
+                  <span className="block text-xs font-medium text-cyan-100">Rápida · Fal.ai</span>
+                  <span className="mt-1 block text-[11px] text-white/50">FLUX Schnell para resultados ágiles</span>
+                </label>
+                <label className={`cursor-pointer rounded-xl border p-3 transition-colors ${imageProvider === 'huggingface' ? 'border-purple-300/30 bg-purple-300/[0.08]' : 'border-white/10 bg-white/[0.02]'}`}>
+                  <input type="radio" name="image-provider" value="huggingface" checked={imageProvider === 'huggingface'} onChange={() => setImageProvider('huggingface')} className="sr-only" />
+                  <span className="block text-xs font-medium text-purple-100">Precisa · Hugging Face</span>
+                  <span className="mt-1 block text-[11px] text-white/50">FLUX Dev para más detalle</span>
+                </label>
+              </fieldset>
+            )}
+            {mediaError && <p role="alert" className="text-xs text-red-300">{mediaError}</p>}
             <button
               type="button"
-              disabled={imagePrompt.trim().length < 3 || isStreaming}
-              onClick={() => void handleGenerateImage()}
+              disabled={imagePrompt.trim().length < 3 || isStreaming || (mediaMode === 'edit-image' && !pendingFiles.some(file => file.type.startsWith('image/') && file.dataUrl))}
+              onClick={() => void handleGenerateMedia()}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-fuchsia-600 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              <Sparkles size={15} /> Crear imagen
+              {mediaMode === 'audio' ? <Music2 size={15} />
+                : mediaMode === 'video' ? <Film size={15} />
+                  : mediaMode === 'edit-image' ? <WandSparkles size={15} />
+                    : <Sparkles size={15} />}
+              {mediaMode === 'audio' ? 'Crear audio'
+                : mediaMode === 'video' ? 'Crear video'
+                  : mediaMode === 'edit-image' ? 'Transformar imagen'
+                    : 'Crear imagen'}
             </button>
           </section>
         </div>
@@ -263,7 +379,7 @@ export function InputBar() {
       <input
         ref={fileInputRef}
         type="file"
-        className="hidden"
+        hidden
         multiple
         accept=".pdf,.doc,.docx,.pptx,.txt,.md,.json,.csv,.xlsx,.ts,.tsx,.js,.jsx,.css,.html,.xml,.yaml,.yml,.sql,.py,.java,.c,.cpp,.h,.hpp,.log,.ini,.env,.sh,.bat,.toml,.exe,.dll,.bin,.msi,.so,.dylib,.app,.png,.jpg,.jpeg,.webp,.gif"
         onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ''; }}
@@ -271,9 +387,17 @@ export function InputBar() {
       <input
         ref={imageInputRef}
         type="file"
-        className="hidden"
+        hidden
         multiple
         accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ''; }}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        hidden
+        accept="image/png,image/jpeg,image/webp"
+        capture="environment"
         onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ''; }}
       />
     </div>
@@ -285,14 +409,34 @@ function ToolBtn({ icon, label, onClick, active }: {
 }) {
   return (
     <button
+      type="button"
       title={label}
+      aria-label={label}
       onClick={onClick}
       className={cn(
-        'p-2 rounded-lg transition-colors text-sm',
+        'shrink-0 rounded-lg p-2 transition-colors text-sm',
         active ? 'bg-red-500/20 text-red-400' : 'text-[#B3B3B3] hover:text-white hover:bg-white/5'
       )}
     >
       {icon}
+    </button>
+  );
+}
+
+function ToolMenuBtn({ icon, label, onClick }: {
+  icon: React.ReactNode; label: string; onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.currentTarget.closest('details')?.removeAttribute('open');
+        onClick();
+      }}
+      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[#B3B3B3] transition-colors hover:bg-white/5 hover:text-white"
+    >
+      {icon}
+      {label}
     </button>
   );
 }

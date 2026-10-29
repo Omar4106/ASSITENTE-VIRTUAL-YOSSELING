@@ -52,7 +52,11 @@ export interface Message {
   attachments?: AttachedFile[];
   isStreaming?: boolean;
   isImageGenerating?: boolean;
+  isMediaGenerating?: boolean;
+  mediaType?: 'image' | 'audio' | 'video';
   imageUrl?: string;
+  audioUrl?: string;
+  videoUrl?: string;
   reasoning?: string;
   optimizationScript?: { filename: string; language: string; code: string; description: string; steps: string[] };
   responseTime?: number;
@@ -126,7 +130,9 @@ export interface AppSettings {
   defaultModel: string;
   defaultProvider: Provider;
   userName: string;
+  userNickname: string;
   userAvatar: string | null;
+  animatedBackground: boolean;
   voice: VoiceSettings;
   autoSave: boolean;
   streamingEnabled: boolean;
@@ -197,4 +203,3 @@ export interface CyclePrediction {
   isCurrentlyOnPeriod: boolean;
   fertilityWindow: { start: string; end: string };
 }
-

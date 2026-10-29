@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface Props {
   isListening?: boolean;
@@ -8,11 +8,17 @@ interface Props {
 }
 
 export function NebulaCanvas({ isListening, isStreaming }: Props) {
+  const [isMounted, setIsMounted] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
   const timeRef = useRef(0);
 
   useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -113,7 +119,9 @@ export function NebulaCanvas({ isListening, isStreaming }: Props) {
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener('resize', resize);
     };
-  }, [isListening, isStreaming]);
+  }, [isListening, isMounted, isStreaming]);
+
+  if (!isMounted) return null;
 
   return (
     <canvas

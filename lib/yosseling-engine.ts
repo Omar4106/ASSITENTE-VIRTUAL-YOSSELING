@@ -48,7 +48,13 @@ export function getOfflineConfig(): OfflineConfig {
 
 export function saveOfflineConfig(config: Partial<OfflineConfig>): OfflineConfig {
   const next = { ...getOfflineConfig(), ...config };
-  if (typeof window !== 'undefined') window.localStorage.setItem(CONFIG_KEY, JSON.stringify(next));
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(CONFIG_KEY, JSON.stringify(next));
+    } catch {
+      return next;
+    }
+  }
   return next;
 }
 

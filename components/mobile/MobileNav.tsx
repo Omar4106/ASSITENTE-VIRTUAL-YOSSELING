@@ -4,8 +4,6 @@ import { MessageSquare, Brain, Settings, Zap } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
-const PANEL_VIEWS = ['memory', 'settings', 'help', 'shortcuts'];
-
 const NAV_ITEMS = [
   { icon: <MessageSquare size={20} />, label: 'Chat', view: 'chats' as const },
   { icon: <Brain size={20} />,         label: 'Memoria', view: 'memory' as const },
@@ -14,32 +12,27 @@ const NAV_ITEMS = [
 ];
 
 export function MobileNav() {
-  const { sidebarView, setSidebarView, setSidebarOpen, sidebarOpen } = useAppStore();
+  const { sidebarView, setSidebarView, setSidebarOpen } = useAppStore();
 
   const handleNav = (view: typeof NAV_ITEMS[number]['view']) => {
     setSidebarView(view);
-    if (PANEL_VIEWS.includes(view)) {
-      // Panel views: open sidebar so the panel overlay can show
-      setSidebarOpen(true);
-    } else {
-      // Non-panel: close sidebar so user sees the chat list, then select
-      setSidebarOpen(true);
-    }
+    setSidebarOpen(true);
   };
 
   return (
-    <nav className="md:hidden flex items-center justify-around border-t border-white/[0.06] bg-[#111218] px-2 py-2 shrink-0">
+    <nav aria-label="Navegación principal" className="grid shrink-0 grid-cols-4 justify-items-center gap-2 border-t border-emerald-300/[0.08] bg-gradient-to-r from-[#080d10] via-[#111218] to-[#111018] px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 md:hidden">
       {NAV_ITEMS.map(item => (
         <button
+          type="button"
           key={item.view}
           onClick={() => handleNav(item.view)}
           className={cn(
-            'flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-colors',
-            sidebarView === item.view ? 'text-purple-400' : 'text-[#B3B3B3]'
+            'flex w-full max-w-24 flex-col items-center gap-1.5 rounded-xl px-2 py-1.5 text-center transition-colors',
+            sidebarView === item.view ? 'bg-purple-400/10 text-purple-300' : 'text-[#B3B3B3] hover:bg-white/5 hover:text-white'
           )}
         >
           {item.icon}
-          <span className="text-[9px]">{item.label}</span>
+          <span className="text-[10px] leading-none">{item.label}</span>
         </button>
       ))}
     </nav>

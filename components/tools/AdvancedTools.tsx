@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
+import type { ConversationSection } from '@/types';
 import { BriefcaseBusiness, Camera, HardDrive, Headphones, ListVideo } from 'lucide-react';
 
 const ToolLoading = () => <div className="p-6 text-zinc-400">Cargando herramienta...</div>;
@@ -21,7 +22,6 @@ const TOOL_TABS = [
 ] as const;
 
 type ToolTab = (typeof TOOL_TABS)[number]['id'];
-type ConversationSection = 'general' | 'vision' | 'employment' | 'voice';
 
 function getSectionForTab(tab: ToolTab): ConversationSection {
   if (tab === 'job') return 'employment';
@@ -30,18 +30,24 @@ function getSectionForTab(tab: ToolTab): ConversationSection {
   return 'general';
 }
 
-export function AdvancedTools({ isActive = true }: { isActive?: boolean }) {
+interface AdvancedToolsProps {
+  isActive?: boolean;
+  setConversationSection: (section: ConversationSection) => void;
+}
+
+export function AdvancedTools({ isActive = true, setConversationSection }: AdvancedToolsProps) {
   const [isMounted, setIsMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<ToolTab>('job');
   const [visitedTabs, setVisitedTabs] = useState<Set<ToolTab>>(() => new Set<ToolTab>(['job']));
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const setSidebarView = useAppStore((state) => state.setSidebarView);
-  const setConversationSection = useAppStore((state) => state.setConversationSection);
   const activeConversationSection = useAppStore((state) => state.activeConversationSection);
 
   const selectTab = useCallback((tab: ToolTab) => {
     setActiveTab(tab);
-    if (isActive) setConversationSection(getSectionForTab(tab));
+    if (isActive && typeof setConversationSection === 'function') {
+      setConversationSection(getSectionForTab(tab));
+    }
     setVisitedTabs((visited) => {
       if (visited.has(tab)) return visited;
       const next = new Set(visited);
@@ -71,7 +77,12 @@ export function AdvancedTools({ isActive = true }: { isActive?: boolean }) {
 
   useEffect(() => {
     const section = isActive ? getSectionForTab(activeTab) : 'general';
-    if (activeConversationSection !== section) setConversationSection(section);
+    if (
+      activeConversationSection !== section &&
+      typeof setConversationSection === 'function'
+    ) {
+      setConversationSection(section);
+    }
   }, [activeConversationSection, activeTab, isActive, setConversationSection]);
 
   if (!isMounted) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, MessageSquare, Star, Pin, Share2, Brain, FileText, Image as ImageIcon, Printer, Settings, Keyboard, CircleHelp as HelpCircle, ChevronRight, Search, MoveHorizontal as MoreHorizontal, CreditCard as Edit2, Trash2, PinOff, Heart, X, User, Zap, Clock } from 'lucide-react';
@@ -8,6 +8,8 @@ import { useAppStore } from '@/lib/store';
 import type { Chat, SidebarView } from '@/types';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { createClient } from '@/lib/supabase/client';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 const NAV_ITEMS: { id: SidebarView; icon: React.ReactNode; label: string }[] = [
   { id: 'chats', icon: <MessageSquare size={16} />, label: 'Chats' },
@@ -129,6 +131,22 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
   } = useAppStore();
 
   const [collapsed, setCollapsed] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const supabase = createClient();
+    void supabase.auth.getUser().then(({ data }: { data: { user: { id: string } | null } }) => {
+      if (active) setIsSignedIn(Boolean(data.user));
+    });
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
+      if (active) setIsSignedIn(Boolean(session?.user));
+    });
+    return () => {
+      active = false;
+      subscription.subscription.unsubscribe();
+    };
+  }, []);
 
   const PANEL_VIEWS = ['memory', 'settings', 'help', 'shortcuts'];
 
@@ -320,14 +338,29 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
             className="border-t border-white/[0.06] p-3 space-y-2"
           >
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/5">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shrink-0">
-                <User size={12} className="text-white" />
-              </div>
+              {settings.userAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={settings.userAvatar} alt={settings.userName} className="w-7 h-7 rounded-full object-cover border border-white/10 shrink-0" />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shrink-0">
+                  <User size={12} className="text-white" />
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-white truncate">{settings.userName}</p>
-                <p className="text-[10px] text-[#B3B3B3]">Cuenta Pro</p>
+                <p className="text-[10px] text-[#B3B3B3]">{isSignedIn ? 'Cuenta conectada' : 'Modo invitado'}</p>
               </div>
             </div>
+            {!isSignedIn && (
+              <button
+                type="button"
+                onClick={() => window.location.assign('/login?next=/')}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-purple-400/25 bg-purple-500/[0.08] py-2 text-[11px] font-medium text-purple-200 hover:border-purple-400/40 hover:bg-purple-500/15"
+              >
+                <User size={12} />
+                Iniciar sesión
+              </button>
+            )}
             <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white/5">
               <Zap size={11} className="text-purple-400 shrink-0" />
               <span className="text-[10px] text-[#B3B3B3] truncate flex-1">Modelo activo</span>

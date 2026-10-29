@@ -12,6 +12,7 @@ import { MemoryPanel } from '@/components/panels/MemoryPanel';
 import { SettingsPanel } from '@/components/panels/SettingsPanel';
 import { HelpPanel } from '@/components/panels/HelpPanel';
 import { CinematicBackground } from '@/components/background/CinematicBackground';
+import { ClientOnly } from '@/components/ui/ClientOnly';
 import { X } from 'lucide-react';
 
 const AdvancedTools = dynamic(
@@ -29,14 +30,45 @@ function PanelContent() {
 }
 
 export default function Home() {
+  const [isMounted, setIsMounted] = useState(false);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [hasOpenedTools, setHasOpenedTools] = useState(false);
-  const { initStore, sidebarOpen, setSidebarOpen, sidebarView, createNewChat, settings } = useAppStore();
+  const {
+    initStore, sidebarOpen, setSidebarOpen, sidebarView, createNewChat, settings,
+    setConversationSection,
+  } = useAppStore();
 
   useEffect(() => {
-    void initStore().catch((error: unknown) => {
-      console.error('[Yosseling] Failed to initialize local store:', error);
-    });
+    let cancelled = false;
+    const fallbackTimer = window.setTimeout(() => {
+      if (!cancelled) setIsMounted(true);
+    }, 2500);
+
+    try {
+      const initialization = Promise.race([
+        initStore(),
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 2500);
+        }),
+      ]);
+
+      void initialization
+        .then(() => {
+          if (!cancelled) setIsMounted(true);
+        })
+        .catch((error: unknown) => {
+          console.error('[Yosseling] Failed to initialize local store:', error);
+          if (!cancelled) setIsMounted(true);
+        });
+    } catch (error: unknown) {
+      console.error('[Yosseling] Failed to start local store initialization:', error);
+      if (!cancelled) setIsMounted(true);
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(fallbackTimer);
+    };
   }, [initStore]);
 
   // Apply theme, font size, and language to the DOM instantly when settings change.
@@ -75,6 +107,12 @@ export default function Home() {
       <CinematicBackground />
 
       <main className="relative flex h-dvh w-full overflow-hidden" style={{ zIndex: 1, background: 'transparent' }}>
+        {!isMounted ? (
+          <div className="flex min-h-screen w-full items-center justify-center bg-[#0f0a1e] text-purple-300">
+            Cargando Yosseling...
+          </div>
+        ) : (
+          <ClientOnly>
         {/* ── Desktop sidebar (inline) ─────────────────────────────── */}
         <AnimatePresence mode="wait">
           {sidebarOpen && (
@@ -240,12 +278,17 @@ export default function Home() {
 
           {hasOpenedTools && (
             <div className={`flex-1 min-h-0 overflow-hidden ${isToolsOpen ? 'flex' : 'hidden'}`}>
-              <AdvancedTools isActive={isToolsOpen} />
+              <AdvancedTools
+                isActive={isToolsOpen}
+                setConversationSection={setConversationSection}
+              />
             </div>
           )}
 
           <MobileNav />
         </div>
+          </ClientOnly>
+        )}
       </main>
     </>
   );

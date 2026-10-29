@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getClientIp, getImageRateLimit, sanitizeInput } from '@/lib/security';
+import { randomUUID } from 'node:crypto';
+import { getClientIp, getImageRateLimit, imagePromptSchema } from '@/lib/security';
 import { getEnvVar } from '@/lib/env';
+import { logImagePromptMetadata, optimizeImagePrompt } from '@/lib/image-prompt';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,8 +27,14 @@ async function tryOvhSdxl(prompt: string): Promise<string | null> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        prompt: `${prompt}, high quality, detailed, 1024x1024`,
-        negative_prompt: 'blurry, watermark, text, logo, low quality, deformed',
+        prompt: `${prompt}, ultra-detailed, sharp focus, 8k resolution, crisp typography, high resolution, optimized sampling`,
+        negative_prompt: /multiplication|tabla|mathematical table/i.test(prompt)
+          ? 'blurry, low quality, deformed numerals, garbled text, illegible text, distorted grid, crooked rows, crooked columns, abstract art, watercolor, painting, extra numbers, duplicate numbers, wrong arithmetic, watermark, logo'
+          : 'blurry, watermark, text, logo, low quality, deformed, extra artifacts',
+        width: 1024,
+        height: 1024,
+        num_inference_steps: 40,
+        guidance_scale: 7.5,
       }),
       signal: AbortSignal.timeout(90000),
     });
@@ -53,8 +61,9 @@ async function tryOvhOpenAICompat(prompt: string): Promise<string | null> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'stable-diffusion-xl-base-v10',
-        prompt: `${prompt}, high quality, detailed`,
+        prompt: `${prompt}, ultra-detailed, sharp focus, 8k resolution, crisp typography, clean vector style when applicable, optimized sampling`,
         size: '1024x1024',
+        quality: 'hd',
         response_format: 'b64_json',
         n: 1,
       }),
@@ -91,7 +100,7 @@ async function tryHuggingFace(prompt: string): Promise<string | null> {
       },
       body: JSON.stringify({
         model: 'black-forest-labs/FLUX.1-schnell',
-        prompt,
+        prompt: `${prompt}, ultra-detailed, sharp focus, 8k resolution, crisp typography, clean vector style when applicable`,
         size: '1024x1024',
         response_format: 'b64_json',
         n: 1,
@@ -111,8 +120,13 @@ async function tryHuggingFace(prompt: string): Promise<string | null> {
             Accept: 'image/png',
           },
           body: JSON.stringify({
-            inputs: prompt,
-            parameters: { width: 1024, height: 1024 },
+            inputs: `${prompt}, ultra-detailed, sharp focus, 8k resolution, crisp typography, clean vector style when applicable`,
+            parameters: {
+              width: 1024,
+              height: 1024,
+              num_inference_steps: 40,
+              guidance_scale: 7.5,
+            },
           }),
           signal: AbortSignal.timeout(90000),
         },
@@ -153,23 +167,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let prompt = '';
+  let userPrompt = '';
   try {
-    const body = (await request.json()) as { prompt?: unknown };
-    prompt = typeof body.prompt === 'string' ? sanitizeInput(body.prompt.trim()) : '';
+    const body = await request.json() as { prompt?: unknown };
+    const parsed = imagePromptSchema.safeParse(body.prompt);
+    if (!parsed.success) {
+      return NextResponse.json({ success: false, error: 'Describe la imagen que quieres crear (3 a 4000 caracteres).' }, { status: 400 });
+    }
+    userPrompt = parsed.data;
   } catch {
     return NextResponse.json({ success: false, error: 'Solicitud inválida.' }, { status: 400 });
   }
 
-  if (!prompt || prompt.length > 4000) {
-    return NextResponse.json({ success: false, error: 'Describe la imagen que quieres crear.' }, { status: 400 });
-  }
+
+  const optimized = optimizeImagePrompt(userPrompt);
+  logImagePromptMetadata('generate-image', randomUUID(), optimized, 'auto');
 
   // Prefer fast public SDXL (OVH), then HF Flux if token present
   const imageUrl =
-    (await tryOvhSdxl(prompt)) ??
-    (await tryOvhOpenAICompat(prompt)) ??
-    (await tryHuggingFace(prompt));
+    (await tryOvhSdxl(optimized.prompt)) ??
+    (await tryOvhOpenAICompat(optimized.prompt)) ??
+    (await tryHuggingFace(optimized.prompt));
 
   if (!imageUrl) {
     return NextResponse.json(

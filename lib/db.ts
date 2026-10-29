@@ -9,6 +9,9 @@ const DB_VERSION = 2;
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 function getDB() {
+  if (typeof window === 'undefined' || !('indexedDB' in window)) {
+    return Promise.reject(new Error('IndexedDB is unavailable in this environment'));
+  }
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
       upgrade(db, oldVersion, _newVersion, transaction) {
@@ -35,7 +38,11 @@ function getDB() {
       },
     });
   }
-  return dbPromise;
+  const current = dbPromise;
+  return current.catch((error: unknown) => {
+    if (dbPromise === current) dbPromise = null;
+    throw error;
+  });
 }
 
 // ── Chats ──────────────────────────────────────────────────
@@ -43,8 +50,16 @@ export async function saveChat(chat: Chat) {
   (await getDB()).put('chats', chat);
 }
 export async function getAllChats(): Promise<Chat[]> {
-  const chats = await (await getDB()).getAll('chats');
-  return chats.sort((a, b) => b.updatedAt - a.updatedAt);
+  try {
+    const load = (await getDB()).getAll('chats') as Promise<Chat[]>;
+    const timeout = new Promise<Chat[]>((resolve) => {
+      globalThis.setTimeout(() => resolve([]), 2000);
+    });
+    const chats = await Promise.race([load, timeout]);
+    return chats.sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
+  }
 }
 export async function deleteChat(id: string) {
   (await getDB()).delete('chats', id);
@@ -58,8 +73,16 @@ export async function saveMemoryItem(item: MemoryItem) {
   (await getDB()).put('memory', item);
 }
 export async function getAllMemory(): Promise<MemoryItem[]> {
-  const items = await (await getDB()).getAll('memory');
-  return items.sort((a, b) => b.updatedAt - a.updatedAt);
+  try {
+    const load = (await getDB()).getAll('memory') as Promise<MemoryItem[]>;
+    const timeout = new Promise<MemoryItem[]>((resolve) => {
+      globalThis.setTimeout(() => resolve([]), 2000);
+    });
+    const items = await Promise.race([load, timeout]);
+    return items.sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
+  }
 }
 export async function deleteMemoryItem(id: string) {
   (await getDB()).delete('memory', id);
@@ -77,7 +100,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultModel: 'llama-3.3-70b-versatile',
   defaultProvider: 'groq',
   userName: 'Usuario',
+  userNickname: '',
   userAvatar: null,
+  animatedBackground: true,
   voice: { enabled: true, voiceName: '', rate: 1.0, pitch: 1.0, volume: 1.0, language: 'es' },
   autoSave: true,
   streamingEnabled: true,
@@ -109,5 +134,9 @@ export function loadSettings(): AppSettings {
 
 export function saveSettings(settings: AppSettings) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem('yosseling-settings', JSON.stringify(settings));
+  try {
+    localStorage.setItem('yosseling-settings', JSON.stringify(settings));
+  } catch {
+    // Storage can be blocked in restricted WebViews; keep the in-memory settings usable.
+  }
 }

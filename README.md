@@ -91,6 +91,12 @@ FAL_KEY=tu_clave_de_fal
 
 El motor rápido usa Fal.ai FLUX Schnell; el motor de mayor detalle usa Hugging Face FLUX Dev. Cada ruta devuelve un error explícito si su clave no está configurada.
 
+### Edición de imágenes y generación de audio/video
+
+Las herramientas del compositor admiten transformar una imagen adjunta (o una foto tomada desde el móvil), generar una pista de audio de hasta 20 segundos y crear clips de video de corta duración con texto o una imagen de referencia. Estas rutas usan Fal.ai en el servidor; requieren `FAL_KEY` (o `FAL_API_KEY`; también se admite `AI_HORDE_API_KEY` como alias de compatibilidad) y las peticiones están limitadas por IP. Las imágenes de referencia aceptadas son PNG, JPEG o WebP de hasta 8 MB.
+
+La generación de audio admite una letra opcional: el modelo intentará cantarla cuando se proporcione; sin letra puede producir una pista instrumental. Los resultados se muestran con reproductores de audio/video en el historial del chat. Las llamadas a video consumen recursos del proveedor y pueden tardar más que una generación de imagen.
+
 ## 📱 Aplicación Android con Capacitor
 
 El proyecto Android usa Capacitor y abre la versión desplegada en Vercel dentro de una WebView nativa sin barra de navegador. La app requiere conexión para las funciones respaldadas por las rutas API de Next.js; el Service Worker puede conservar recursos visitados, pero no convierte las APIs remotas en funciones offline.

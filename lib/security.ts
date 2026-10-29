@@ -3,6 +3,46 @@
  * Input sanitization, XSS prevention, prompt injection detection, rate limiting.
  */
 
+import { z } from 'zod';
+
+export const promptSchema = z.string().trim().min(3).max(4000).transform((value) => sanitizeInput(value));
+export const imagePromptSchema = z.string().trim().min(3).max(4000).transform((value) => sanitizeInput(value));
+export const audioPromptSchema = z.object({
+  prompt: z.string().trim().min(3).max(1000).transform((value) => sanitizeInput(value)),
+  lyrics: z.string().max(3000).optional().default('').transform((value) => sanitizeInput(value)),
+});
+export const videoPromptSchema = z.object({
+  prompt: z.string().trim().min(3).max(1000).transform((value) => sanitizeInput(value)),
+  imageDataUrl: z.string().max(12_000_000).optional(),
+});
+export const ttsRequestSchema = z.object({
+  text: z.string().trim().min(1).max(3000).transform((value) => sanitizeInput(value)),
+  personality: z.enum(['profesional', 'amigable', 'creativa', 'tecnica', 'divertida', 'formal']).optional().default('amigable'),
+});
+
+const chatContentPartSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), text: z.string().max(50_000) }),
+  z.object({ type: z.literal('image_url'), image_url: z.object({ url: z.string().max(12_000_000) }) }),
+]);
+export const chatRequestSchema = z.object({
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant', 'system']),
+    content: z.union([z.string().max(50_000), z.array(chatContentPartSchema)]),
+    attachments: z.array(z.object({
+      name: z.string().max(255).default('archivo'),
+      type: z.string().max(255).default('application/octet-stream'),
+      dataUrl: z.string().max(12_000_000).optional(),
+      content: z.string().max(120_000).optional(),
+    })).max(10).optional(),
+  })).min(1).max(100),
+  model: z.string().max(200).optional(),
+  provider: z.enum(['auto', 'openai', 'groq', 'gemini', 'openrouter', 'cerebras']).optional().default('auto'),
+  autoRoute: z.boolean().optional().default(false),
+  personality: z.enum(['profesional', 'amigable', 'creativa', 'tecnica', 'divertida', 'formal']).optional(),
+  memoryContext: z.string().max(50_000).optional(),
+  adaptiveProfile: z.record(z.unknown()).optional(),
+}).strict();
+
 // ── HTML Entity Escaping ───────────────────────────────────────────────────
 
 const HTML_ENTITIES: Record<string, string> = {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getClientIp, getImageRateLimit, sanitizeInput } from '@/lib/security';
+import { randomUUID } from 'node:crypto';
+import { getClientIp, getImageRateLimit, imagePromptSchema } from '@/lib/security';
 import { getEnvVar } from '@/lib/env';
+import { logImagePromptMetadata, optimizeImagePrompt } from '@/lib/image-prompt';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,12 +35,15 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ success: false, error: 'La solicitud debe contener JSON válido.' }, { status: 400 });
   }
-  const prompt = body && typeof body === 'object' && 'prompt' in body && typeof body.prompt === 'string'
-    ? sanitizeInput(body.prompt.trim())
-    : '';
-  if (prompt.length < 3 || prompt.length > 4000) {
+  const parsed = imagePromptSchema.safeParse(
+    body && typeof body === 'object' && 'prompt' in body ? body.prompt : undefined,
+  );
+  if (!parsed.success) {
     return NextResponse.json({ success: false, error: 'Escribe una descripción de imagen de 3 a 4000 caracteres.' }, { status: 400 });
   }
+  const prompt = parsed.data;
+  const optimized = optimizeImagePrompt(prompt);
+  logImagePromptMetadata('generate-image-hf', randomUUID(), optimized, 'huggingface-flux-dev');
 
   const token = getEnvVar('HF_TOKEN') ?? getEnvVar('HUGGINGFACE_API_KEY') ?? getEnvVar('HUGGINGFACE_TOKEN');
   if (!token) {
@@ -54,8 +59,13 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        inputs: prompt,
-        parameters: { width: 1024, height: 1024, num_inference_steps: 28 },
+        inputs: optimized.prompt,
+        parameters: {
+          width: 1024,
+          height: 1024,
+          num_inference_steps: 40,
+          guidance_scale: 7.5,
+        },
       }),
       signal: AbortSignal.timeout(105_000),
     });

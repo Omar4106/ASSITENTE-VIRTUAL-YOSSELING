@@ -1,21 +1,28 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { NebulaCanvas } from './NebulaCanvas';
 import { ParticleField } from './ParticleField';
 
 export function CinematicBackground() {
+  const [isMounted, setIsMounted] = useState(false);
   const isStreaming = useAppStore(s => s.isStreaming);
   const isListening = useAppStore(s => s.isListening);
+  const animatedBackground = useAppStore(s => s.settings.animatedBackground);
 
   const mouseRef = useRef({ x: 0.5, y: 0.5 });
 
   const getMousePos = useCallback(() => mouseRef.current, []);
 
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   // Track mouse position normalized 0-1
   useEffect(() => {
+    if (!isMounted) return;
     const handler = (e: MouseEvent) => {
       mouseRef.current = {
         x: e.clientX / window.innerWidth,
@@ -24,7 +31,9 @@ export function CinematicBackground() {
     };
     window.addEventListener('mousemove', handler, { passive: true });
     return () => window.removeEventListener('mousemove', handler);
-  }, []);
+  }, [isMounted]);
+
+  if (!isMounted || !animatedBackground) return null;
 
   return (
     <div className="fixed inset-0 overflow-hidden" style={{ zIndex: 0, pointerEvents: 'none' }}>

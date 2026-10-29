@@ -5,7 +5,13 @@ import { Check, RefreshCw, Server, Info, Cloud, ChevronDown } from 'lucide-react
 import { getOfflineConfig, saveOfflineConfig, type OfflineConfig } from '@/lib/yosseling-engine';
 
 export function OfflineManager() {
-  const [config, setConfig] = useState<OfflineConfig>(getOfflineConfig);
+  const [isMounted, setIsMounted] = useState(false);
+  const [config, setConfig] = useState<OfflineConfig>({
+    backend: 'ollama',
+    ollamaUrl: 'http://localhost:11434',
+    ollamaModel: 'qwen2.5:7b',
+    configured: false,
+  });
   const [busy, setBusy] = useState(false);
   const [ollamaReady, setOllamaReady] = useState<boolean | null>(null);
   const [message, setMessage] = useState('');
@@ -13,10 +19,8 @@ export function OfflineManager() {
   const [corsHelpOpen, setCorsHelpOpen] = useState(false);
 
   useEffect(() => {
-    const stored = getOfflineConfig();
-    if (stored.ollamaUrl && stored.ollamaUrl !== config.ollamaUrl) {
-      setConfig(stored);
-    }
+    setConfig(getOfflineConfig());
+    setIsMounted(true);
   }, []);
 
   const update = (partial: Partial<OfflineConfig>) => {
@@ -54,6 +58,8 @@ export function OfflineManager() {
       setBusy(false);
     }
   };
+
+  if (!isMounted) return null;
 
   return (
     <section className="rounded-2xl border border-cyan-400/15 bg-cyan-400/[0.04] p-4 space-y-4">
@@ -124,7 +130,7 @@ export function OfflineManager() {
               <div className="px-3 pb-3 pt-1 text-[10px] leading-relaxed text-amber-200/80 space-y-2">
                 <p className="font-semibold text-amber-100">Para usar Ollama local desde la web/PWA:</p>
                 <p>Abre una terminal de Windows (PowerShell) en tu PC y ejecuta:</p>
-                <pre className="rounded bg-black/40 px-2 py-1.5 text-amber-100 overflow-x-auto"><code>$env:OLLAMA_ORIGINS="*" ; ollama serve</code></pre>
+                <pre className="rounded bg-black/40 px-2 py-1.5 text-amber-100 overflow-x-auto"><code>$env:OLLAMA_ORIGINS=&quot;*&quot; ; ollama serve</code></pre>
                 <p>Esto permite que el navegador se conecte a Ollama. Mantén la terminal abierta mientras uses Yosseling en modo local.</p>
                 <p className="text-[9px] text-amber-200/60">Alternativa (CMD): <code className="rounded bg-black/30 px-1">set OLLAMA_ORIGINS=* &amp;&amp; ollama serve</code></p>
               </div>

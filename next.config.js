@@ -30,6 +30,9 @@ console.log('  OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'set' : 'NOT SET')
 console.log('  GEMINI_API_KEY:', process.env.GEMINI_API_KEY ? 'set' : 'NOT SET');
 console.log('  OPENROUTER_API_KEY:', process.env.OPENROUTER_API_KEY ? 'set' : 'NOT SET');
 console.log('  CEREBRAS_API_KEY:', process.env.CEREBRAS_API_KEY ? 'set' : 'NOT SET');
+console.log('  FAL_API_KEY:', process.env.FAL_API_KEY ? 'set' : 'NOT SET');
+console.log('  NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'set' : 'NOT SET');
+console.log('  NEXT_PUBLIC_SUPABASE_ANON_KEY:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'set' : 'NOT SET');
 
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
@@ -37,30 +40,45 @@ const securityHeaders = [
   { key: 'X-XSS-Protection', value: '1; mode=block' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' },
+  { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
   {
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "worker-src 'self' blob: https://unpkg.com",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com data:",
+      process.env.NODE_ENV === 'production'
+        ? "script-src 'self' 'unsafe-inline'"
+        : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "worker-src 'self' blob:",
+      "style-src 'self' 'unsafe-inline'",
+      "font-src 'self' data:",
       "img-src 'self' data: https: blob:",
-      "connect-src 'self' https://api.groq.com https://api.openai.com https://generativelanguage.googleapis.com https://openrouter.ai https://api.cerebras.ai https://api-inference.huggingface.co https://router.huggingface.co https://fal.run blob: data:",
+      "media-src 'self' https://fal.media https://*.fal.media https://storage.googleapis.com data: blob:",
+      "connect-src 'self' https://api.groq.com https://api.openai.com https://generativelanguage.googleapis.com https://openrouter.ai https://api.cerebras.ai https://api-inference.huggingface.co https://router.huggingface.co https://fal.run https://*.fal.media blob: data:",
+      "frame-src 'none'",
       "frame-ancestors 'none'",
       "form-action 'self'",
       "base-uri 'self'",
       "object-src 'none'",
+      "upgrade-insecure-requests",
     ].join('; '),
   },
   { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
 ];
 
 const nextConfig = {
+  experimental: { serverActions: true },
   eslint: { ignoreDuringBuilds: true },
   images: { unoptimized: true },
   async headers() {
     return [
+      {
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate, proxy-revalidate' },
+          { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
       {
         source: '/(.*)',
         headers: securityHeaders,

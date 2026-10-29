@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getEnvVar } from '@/lib/env';
-import { checkRateLimit, getClientIp, sanitizeInput } from '@/lib/security';
+import { checkRateLimit, getClientIp, ttsRequestSchema } from '@/lib/security';
 import type { PersonalityStyle } from '@/types';
 
 export const runtime = 'nodejs';
@@ -64,21 +64,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json() as { text?: unknown; personality?: unknown };
-    const rawText = typeof body.text === 'string' ? sanitizeInput(body.text.trim()) : '';
-    if (!rawText || rawText.length > 3000) {
-      return NextResponse.json({ error: 'No hay texto para leer.' }, { status: 400 });
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Solicitud inválida.' }, { status: 400 });
+    }
+    const parsed = ttsRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'El texto o la personalidad tienen un formato inválido.' }, { status: 400 });
     }
 
+    const rawText = parsed.data.text;
     const cleanedText = cleanTextForSpeech(rawText);
     if (!cleanedText) {
       return NextResponse.json({ error: 'No hay texto para leer.' }, { status: 400 });
     }
 
-    const personalityRaw = typeof body.personality === 'string' ? body.personality : 'amigable';
-    const personality = (['profesional','amigable','creativa','tecnica','divertida','formal'].includes(personalityRaw)
-      ? personalityRaw
-      : 'amigable') as PersonalityStyle;
+    const personality = parsed.data.personality as PersonalityStyle;
     const speed = PERSONALITY_SPEED[personality];
     const expressiveTag = PERSONALITY_EXPRESSIVE_TAG[personality];
     const ttsInput = `${expressiveTag}${cleanedText}`;
@@ -91,23 +94,38 @@ export async function POST(req: NextRequest) {
     let audioBuffer: ArrayBuffer | null = null;
 
     try {
-      const response = await fetch('https://api.groq.com/openai/v1/audio/speech', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: TTS_MODEL,
-          voice: TTS_VOICE,
-          input: ttsInput,
-          response_format: 'wav',
-          speed,
-        }),
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      let response: Response;
+      try {
+        response = await fetch('https://api.groq.com/openai/v1/audio/speech', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: TTS_MODEL,
+            voice: TTS_VOICE,
+            input: ttsInput,
+            response_format: 'wav',
+            speed,
+          }),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.error('[Yosseling TTS] Groq request timed out after 30 seconds');
+          return NextResponse.json({ error: 'El servicio de voz tardó demasiado en responder.' }, { status: 504 });
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!response.ok) {
         const errText = await response.text().catch(() => '');
+        console.error(`[Yosseling TTS] Groq speech failed: HTTP ${response.status}`, errText.slice(0, 300));
         return NextResponse.json(
           { error: `No pude generar la voz ahora. (${response.status}) ${errText.slice(0, 120)}` },
           { status: 502 },

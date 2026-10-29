@@ -23,7 +23,7 @@ export function ModelSelector() {
       whileTap={{ scale: 0.96 }}
       onClick={toggle}
       className={cn(
-        'flex items-center gap-2 px-3 py-2 rounded-xl border transition-all select-none',
+        'flex min-w-0 max-w-full items-center gap-1.5 rounded-xl border px-2 py-2 transition-all select-none sm:gap-2 sm:px-3',
         isFast
           ? 'bg-gradient-to-r from-orange-500/20 to-orange-600/10 border-orange-500/40'
           : 'bg-[#171923] border-white/[0.06] hover:border-purple-500/30'
@@ -36,7 +36,7 @@ export function ModelSelector() {
         <Zap size={13} className="text-purple-400" />
       )}
       <span className={cn(
-        'text-sm font-semibold transition-colors',
+        'min-w-0 truncate text-xs font-semibold transition-colors sm:text-sm',
         isFast ? 'text-orange-300' : 'text-white'
       )}>
         {isFast ? 'Ultra Rápido' : 'Automático'}

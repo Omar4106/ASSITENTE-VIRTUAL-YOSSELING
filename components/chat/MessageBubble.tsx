@@ -164,6 +164,7 @@ function AutoIllustration({ prompt }: { prompt: string }) {
 
 export function MessageBubble({ message, chatId, onSpeak }: Props) {
   const { deleteMessage, regenerateResponse, editMessage, settings } = useAppStore();
+  const [isMounted, setIsMounted] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -171,7 +172,11 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
   const isUser = message.role === 'user';
   const [reasoningOpen, setReasoningOpen] = useState(false);
 
-  const isEmptyStreaming = !isUser && message.isStreaming && !message.content && !message.reasoning && !message.imageUrl && !message.isImageGenerating;
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const isEmptyStreaming = !isUser && message.isStreaming && !message.content && !message.reasoning && !message.imageUrl && !message.isMediaGenerating;
 
   const socialUrl = isUser && message.content
     ? (() => {
@@ -289,6 +294,14 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
                   )}
                 </div>
               )}
+              {message.isMediaGenerating && message.mediaType !== 'image' && (
+                <div className="my-2 flex w-full max-w-sm items-center gap-3 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.06] px-4 py-3 text-cyan-100">
+                  <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-cyan-200/30 border-t-cyan-200" />
+                  <span className="text-xs">
+                    {message.mediaType === 'audio' ? 'Componiendo tu audio…' : 'Renderizando tu video…'}
+                  </span>
+                </div>
+              )}
               {message.isImageGenerating && (
                 <div className="mt-1 mb-2 relative overflow-hidden rounded-xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/5 via-purple-500/10 to-black/40 aspect-square max-h-[320px] w-full flex flex-col items-center justify-center gap-3">
                   <div className="relative h-14 w-14">
@@ -299,11 +312,31 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
                   <p className="text-[10px] text-[#B3B3B3]/70">Sin marcas de agua</p>
                 </div>
               )}
-              {message.imageUrl && (
+              {message.imageUrl && !message.videoUrl && (
                 <a href={message.imageUrl} target="_blank" rel="noopener noreferrer" className="mt-2 block overflow-hidden rounded-xl border border-white/10">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={message.imageUrl} alt="Imagen generada por Yosseling" className="max-h-[520px] w-full object-cover" />
                 </a>
+              )}
+              {message.audioUrl && (
+                <div className="mt-3 w-full max-w-xl rounded-xl border border-cyan-300/15 bg-black/25 p-3">
+                  <audio controls preload="none" className="w-full" src={message.audioUrl}>
+                    Tu navegador no puede reproducir este audio.
+                  </audio>
+                  <a href={message.audioUrl} download className="mt-2 inline-flex text-xs text-cyan-200 hover:text-cyan-100">
+                    Descargar audio
+                  </a>
+                </div>
+              )}
+              {message.videoUrl && (
+                <div className="mt-3 w-full max-w-2xl overflow-hidden rounded-xl border border-cyan-300/15 bg-black/25">
+                  <video controls playsInline preload="metadata" className="max-h-[520px] w-full" src={message.videoUrl}>
+                    Tu navegador no puede reproducir este video.
+                  </video>
+                  <a href={message.videoUrl} download className="m-3 inline-flex text-xs text-cyan-200 hover:text-cyan-100">
+                    Descargar video
+                  </a>
+                </div>
               )}
               {displayContent && (!isUser ? (
                 <ReactMarkdown
@@ -375,7 +408,7 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
           'flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity',
           isUser ? 'flex-row-reverse' : 'flex-row'
         )}>
-          <span className="text-[10px] text-[#B3B3B3]/50">{formatTime(message.timestamp)}</span>
+          <span className="text-[10px] text-[#B3B3B3]/50">{isMounted ? formatTime(message.timestamp) : ''}</span>
 
           {!isUser && message.responseTime && (
             <span className="text-[10px] text-[#B3B3B3]/50">· {(message.responseTime / 1000).toFixed(1)}s</span>

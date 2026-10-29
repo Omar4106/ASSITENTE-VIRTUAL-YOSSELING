@@ -1,21 +1,78 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Settings, Palette, Volume2, Languages, Type, Download,
-  Upload, Trash2, User, Zap, Brain, Check, Heart, Info, WifiOff, Camera,
+  Upload, Trash2, User, Zap, Brain, Check, Heart, Info, WifiOff, Camera, LogIn, LogOut,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { YOSSELING_IDENTITY } from '@/lib/personality';
 import type { PersonalityStyle } from '@/types';
 import { cn } from '@/lib/utils';
 import { OfflineManager } from './OfflineManager';
+import { createClient } from '@/lib/supabase/client';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 export function SettingsPanel() {
   const { settings, updateSettings, clearAllChats, clearMemory, chats, selectedModel, importChats: storeImportChats } = useAppStore();
   const [saved, setSaved] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    void createClient().auth.getUser().then(async ({ data }: { data: { user: { id: string; email?: string | null } | null } }) => {
+      if (!active) return;
+      setIsSignedIn(Boolean(data.user));
+      if (!data.user) return;
+      const { data: profile } = await createClient()
+        .from('profiles')
+        .select('name, nickname, avatar_url, animated_background')
+        .eq('id', data.user.id)
+        .maybeSingle();
+      if (!active || !profile) return;
+      updateSettings({
+        userName: profile.name ?? settings.userName,
+        userNickname: profile.nickname ?? settings.userNickname,
+        userAvatar: profile.avatar_url ?? settings.userAvatar,
+        animatedBackground: profile.animated_background ?? true,
+      });
+    }).catch((error: unknown) => console.error('[Yosseling] Profile load failed:', error));
+    return () => { active = false; };
+    // Mount-only profile hydration: changes are persisted through the separate settings effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let active = true;
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
+      if (active) setIsSignedIn(Boolean(session?.user));
+    });
+    return () => {
+      active = false;
+      subscription.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void createClient().auth.getUser().then(({ data }: { data: { user: { id: string; email?: string | null } | null } }) => {
+        if (!data.user) return;
+        return createClient().from('profiles').upsert({
+          id: data.user.id,
+          email: data.user.email,
+          name: settings.userName,
+          nickname: settings.userNickname || null,
+          avatar_url: settings.userAvatar,
+          animated_background: settings.animatedBackground,
+        }, { onConflict: 'id' });
+      }).catch((error: unknown) => console.error('[Yosseling] Profile save failed:', error));
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [settings.userName, settings.userNickname, settings.userAvatar, settings.animatedBackground]);
 
   const save = (partial: Parameters<typeof updateSettings>[0]) => {
     updateSettings(partial);
@@ -23,20 +80,52 @@ export function SettingsPanel() {
     setTimeout(() => setSaved(false), 1500);
   };
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+    try {
+      const { error } = await createClient().auth.signOut();
+      if (error) throw error;
+      updateSettings({
+        userName: 'Usuario',
+        userNickname: '',
+        userAvatar: null,
+      });
+      window.location.assign('/');
+    } catch (error) {
+      console.error('[Yosseling] Sign out failed:', error);
+      alert(error instanceof Error ? error.message : 'No se pudo cerrar la sesión.');
+      setIsSigningOut(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      alert('La imagen es demasiado grande. Usa una de menos de 2 MB.');
+    if (file.size > 5 * 1024 * 1024 || !/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      alert('Usa una imagen PNG, JPEG o WebP de menos de 5 MB.');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === 'string') save({ userAvatar: result });
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    try {
+      const supabase = createClient();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw userError ?? new Error('Sesión no disponible');
+      const extension = file.name.split('.').pop()?.toLowerCase().replace('jpeg', 'jpg') || 'jpg';
+      const path = `${user.id}/avatar-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, {
+        upsert: true,
+        cacheControl: '3600',
+        contentType: file.type,
+      });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+      if (!data.publicUrl) throw new Error('No se pudo obtener la URL del avatar');
+      save({ userAvatar: data.publicUrl });
+    } catch (error) {
+      console.error('[Yosseling] Avatar upload failed:', error);
+      alert(error instanceof Error ? error.message : 'No se pudo subir el avatar.');
+    } finally {
+      e.target.value = '';
+    }
   };
 
   const exportChats = (format: 'json' | 'txt' | 'md') => {
@@ -134,7 +223,42 @@ export function SettingsPanel() {
               onChange={v => save({ userName: v })}
               placeholder="Tu nombre"
             />
+            <LabeledInput
+              label="Apodo preferido"
+              value={settings.userNickname}
+              onChange={v => save({ userNickname: v })}
+              placeholder="Cómo quieres que te llame Yosseling"
+            />
+            <LabeledInput
+              label="URL del avatar (opcional)"
+              value={settings.userAvatar ?? ''}
+              onChange={v => save({ userAvatar: v.trim() || null })}
+              placeholder="https://..."
+            />
           </div>
+        </Section>
+
+        <Section icon={isSignedIn ? <LogOut size={15} /> : <LogIn size={15} />} title="Cuenta">
+          {isSignedIn ? (
+            <button
+              type="button"
+              onClick={() => void handleSignOut()}
+              disabled={isSigningOut}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-400/20 bg-red-500/[0.06] py-2.5 text-xs font-medium text-red-300 transition-colors hover:border-red-400/40 hover:bg-red-500/10 disabled:opacity-60"
+            >
+              <LogOut size={14} />
+              {isSigningOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => window.location.assign('/login?next=/')}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-purple-400/30 bg-purple-500/[0.08] py-2.5 text-xs font-medium text-purple-200 transition-colors hover:border-purple-400/50 hover:bg-purple-500/15"
+            >
+              <LogIn size={14} />
+              Iniciar sesión o registrarse
+            </button>
+          )}
         </Section>
 
         {/* Theme */}
@@ -175,6 +299,16 @@ export function SettingsPanel() {
                 ))}
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => save({ animatedBackground: !settings.animatedBackground })}
+              className="flex w-full items-center justify-between rounded-lg border border-white/[0.06] px-3 py-2 text-xs text-[#B3B3B3] transition-colors hover:border-purple-500/30"
+            >
+              <span>Fondo animado</span>
+              <span className={cn('rounded-full px-2 py-0.5 text-[10px]', settings.animatedBackground ? 'bg-purple-500/20 text-purple-300' : 'bg-white/10 text-white/60')}>
+                {settings.animatedBackground ? 'Activado' : 'Desactivado'}
+              </span>
+            </button>
           </div>
         </Section>
 

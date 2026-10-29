@@ -1,13 +1,16 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import { ServiceWorkerRegistration } from '@/components/pwa/ServiceWorkerRegistration';
-import { OfflineBanner } from '@/components/ui/OfflineBanner';
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-inter',
-});
+import dynamic from 'next/dynamic';
+
+const CapacitorAuthListener = dynamic(
+  () => import('@/components/auth/CapacitorAuthListener'),
+  { ssr: false }
+);
+
+const ServiceWorkerRegistration = dynamic(
+  () => import('@/components/pwa/ServiceWorkerRegistration'),
+  { ssr: false }
+);
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://asistente-virtual-yosseling.vercel.app'),
@@ -38,10 +41,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className="dark">
-      <body className={`${inter.variable} font-sans dark`} suppressHydrationWarning>
+    <html lang="es" className="dark" suppressHydrationWarning>
+      <body className="font-sans dark" suppressHydrationWarning>
+        <CapacitorAuthListener />
         <ServiceWorkerRegistration />
-        <OfflineBanner />
         {children}
       </body>
     </html>

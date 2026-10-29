@@ -12,7 +12,10 @@ import {
 } from '@/lib/ai-config';
 import { buildSystemPrompt, buildFastSystemPrompt } from '@/lib/personality';
 import { getEnvVar } from '@/lib/env';
-import { checkRateLimit, getClientIp, detectPromptInjection, PROMPT_INJECTION_RESPONSE, sanitizeInput } from '@/lib/security';
+import { checkRateLimit, getClientIp, detectPromptInjection, PROMPT_INJECTION_RESPONSE, sanitizeInput, chatRequestSchema } from '@/lib/security';
+import { detectMediaGenerationIntent, isImageGenerationRequest } from '@/lib/image-intent';
+import { createClient } from '@/lib/supabase/server';
+import { detectAutonomousMemories, detectPreferredNickname } from '@/lib/autonomous-memory';
 import type { Provider, AdaptiveProfile, TaskType } from '@/types';
 
 export const runtime = 'nodejs';
@@ -332,11 +335,87 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { messages, model, provider, autoRoute, personality, memoryContext, adaptiveProfile } = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: 'Solicitud de chat inválida.' }, { status: 400 });
+    }
+
+    const parsed = chatRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'La solicitud excede los límites permitidos o contiene campos inválidos.' },
+        { status: 400 },
+      );
+    }
+
+    const { messages, model, provider, autoRoute, personality, memoryContext, adaptiveProfile } = parsed.data;
 
     // Task detection — lightweight regex, no blocking I/O
     const lastUserMsgRaw = [...messages].reverse().find((m: ChatMessage) => m.role === 'user');
     const lastUserText = typeof lastUserMsgRaw?.content === 'string' ? lastUserMsgRaw.content : '';
+    let serverMemoryContext = typeof memoryContext === 'string' ? memoryContext : '';
+
+    try {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const [{ data: profile }, { data: memories }] = await Promise.all([
+          supabase.from('profiles')
+            .select('name, nickname')
+            .eq('id', user.id)
+            .maybeSingle(),
+          supabase.from('user_memories')
+            .select('category, content, importance_score')
+            .eq('user_id', user.id)
+            .order('importance_score', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(30),
+        ]);
+
+        const identityParts: string[] = [];
+        const preferredName = profile?.nickname?.trim() || profile?.name?.trim();
+        if (preferredName) identityParts.push(`Apodo o nombre preferido del usuario: ${preferredName}. Úsalo de forma natural cuando sea adecuado.`);
+        if (memories?.length) {
+          identityParts.push(
+            `Memorias persistentes del usuario:\n${memories.map((memory) =>
+              `- [${memory.category}] ${memory.content}`
+            ).join('\n')}`
+          );
+        }
+        if (identityParts.length) {
+          serverMemoryContext = [serverMemoryContext, ...identityParts].filter(Boolean).join('\n\n');
+        }
+
+        const nickname = detectPreferredNickname(lastUserText);
+        if (nickname) {
+          void supabase.from('profiles').update({ nickname }).eq('id', user.id).then(({ error }) => {
+            if (error) console.error('[Yosseling] Nickname save failed:', error.message);
+          });
+        }
+
+        const detectedMemories = detectAutonomousMemories(lastUserText).filter((memory) =>
+          !memories?.some((existing) => existing.content === memory.content)
+        );
+        if (detectedMemories.length) {
+          void supabase.from('user_memories').insert(
+            detectedMemories.map((memory) => ({
+              user_id: user.id,
+              category: memory.category,
+              content: memory.content,
+              importance_score: memory.importanceScore,
+            }))
+          ).then(({ error }) => {
+            if (error) console.error('[Yosseling] Automatic memory save failed:', error.message);
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[Yosseling] Supabase memory context unavailable:', error);
+    }
+    const requestedMediaMode = detectMediaGenerationIntent(lastUserText)
+      ?? (isImageGenerationRequest(lastUserText) ? 'image' : null);
 
     // Media-only link shortcut: return canned confirmation without calling any provider
     if (isMediaLinkOnly(lastUserText)) {
@@ -344,7 +423,7 @@ export async function POST(req: NextRequest) {
     }
 
     const detectedTask: TaskType = detectTaskType(lastUserText);
-    const isSimpleChat = detectedTask === 'chat';
+    const isSimpleChat = detectedTask === 'chat' && !requestedMediaMode;
 
     // Prompt injection — quick regex check, only on last message
     const injection = detectPromptInjection(lastUserText);
@@ -361,13 +440,16 @@ export async function POST(req: NextRequest) {
         }));
 
     // Fast path: minimal system prompt for simple chat (≈80 tokens vs ≈2000)
-    const systemPrompt = isSimpleChat
-      ? buildFastSystemPrompt(personality ?? 'amigable', memoryContext)
+    const baseSystemPrompt = isSimpleChat
+      ? buildFastSystemPrompt(personality ?? 'amigable', serverMemoryContext)
       : buildSystemPrompt(
           personality ?? 'amigable',
-          memoryContext,
+          serverMemoryContext,
           adaptiveProfile as AdaptiveProfile | undefined,
         );
+    const systemPrompt = requestedMediaMode
+      ? `${baseSystemPrompt}\n\nEsta solicitud de ${requestedMediaMode} se atiende mediante la herramienta multimedia integrada del chat. Si la intención es video, clip, movimiento, grabación o formato audiovisual, clasifícala obligatoriamente como video/Fal.ai y nunca como imagen. Nunca afirmes que no puedes crearla por ser una IA de texto ni presentes una respuesta textual como si fuera el archivo generado.`
+      : baseSystemPrompt;
 
     const apiMessages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },

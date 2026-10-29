@@ -15,7 +15,7 @@ import {
 import { getDefaultModel } from '@/lib/ai-config';
 import { buildMemoryContext, detectMemory, isDuplicate, createMemoryItem, exportMemory, parseMemoryImport, updateAdaptiveProfile } from '@/lib/memory';
 import { sendThroughYosseling } from '@/lib/yosseling-engine';
-import { isImageGenerationRequest, isOfflineModeIntent, isAffirmation, isOptimizationRequest, detectPlatform } from '@/lib/image-intent';
+import { detectMediaGenerationIntent, isImageGenerationRequest, isOfflineModeIntent, isAffirmation, isOptimizationRequest, detectPlatform } from '@/lib/image-intent';
 import { generateOptimizationScript } from '@/lib/optimization';
 
 function genId() {
@@ -83,7 +83,13 @@ interface AppState {
   sendMessage: (
     content: string,
     files?: AttachedFile[],
-    options?: { section?: ConversationSection; imageProvider?: ImageGenerationProvider },
+    options?: {
+      section?: ConversationSection;
+      imageProvider?: ImageGenerationProvider;
+      mediaMode?: 'image' | 'edit-image' | 'audio' | 'video';
+      imageDataUrl?: string;
+      lyrics?: string;
+    },
   ) => Promise<void>;
   setConversationSection: (section: ConversationSection) => void;
   stopStreaming: () => void;
@@ -121,6 +127,7 @@ interface AppState {
 }
 
 const { id: defaultModelId, provider: defaultProvider } = getDefaultModel();
+let storeInitializationPromise: Promise<void> | null = null;
 
 export const useAppStore = create<AppState>()(
   subscribeWithSelector((set, get) => ({
@@ -144,16 +151,29 @@ export const useAppStore = create<AppState>()(
     memoryIndicator: null,
     activeConversationSection: 'general',
 
-    initStore: async () => {
-      const settings = loadSettings();
-      const [chats, memory] = await Promise.all([getAllChats(), getAllMemory()]);
-      set({
-        settings,
-        chats: chats.map((chat) => ({ ...chat, section: chat.section ?? 'general' })),
-        memory,
-        selectedModel: settings.defaultModel,
-        selectedProvider: settings.defaultProvider,
-      });
+    initStore: () => {
+      if (!storeInitializationPromise) {
+        storeInitializationPromise = (async () => {
+          const settings = loadSettings();
+          const storageLoad = Promise.all([getAllChats(), getAllMemory()]);
+          const timeout = new Promise<[Chat[], MemoryItem[]]>((resolve) => {
+            globalThis.setTimeout(() => resolve([[], []]), 2500);
+          });
+          const [chats, memory] = await Promise.race([storageLoad, timeout]);
+          set({
+            settings,
+            chats: chats.map((chat) => ({ ...chat, section: chat.section ?? 'general' })),
+            memory,
+            selectedModel: settings.defaultModel,
+            selectedProvider: settings.defaultProvider,
+          });
+        })().catch((error: unknown) => {
+          storeInitializationPromise = null;
+          throw error;
+        });
+      }
+
+      return storeInitializationPromise;
     },
 
     createNewChat: () => {
@@ -220,6 +240,10 @@ export const useAppStore = create<AppState>()(
 
     sendMessage: async (content, files, options) => {
       const state = get();
+      const detectedMediaMode = detectMediaGenerationIntent(content);
+      const requestedMediaMode = detectedMediaMode
+        ?? options?.mediaMode
+        ?? (isImageGenerationRequest(content) ? 'image' : undefined);
       const section = options?.section ?? state.activeConversationSection;
       let chat = state.chats.find(c => c.id === state.activeChatId && (c.section ?? 'general') === section) ?? null;
       if (!chat) {
@@ -263,7 +287,15 @@ export const useAppStore = create<AppState>()(
         model: state.selectedModel,
         provider: state.selectedProvider,
         isStreaming: true,
-        isImageGenerating: isImageGenerationRequest(content),
+        isImageGenerating: requestedMediaMode === 'image' || requestedMediaMode === 'edit-image',
+        isMediaGenerating: Boolean(requestedMediaMode),
+        mediaType: requestedMediaMode === 'audio'
+          ? 'audio'
+          : requestedMediaMode === 'video'
+            ? 'video'
+            : requestedMediaMode === 'edit-image' || requestedMediaMode === 'image'
+              ? 'image'
+              : undefined,
       };
 
       const updatedMessages = [...(chat.messages ?? []), userMsg, assistantMsg];
@@ -295,16 +327,18 @@ export const useAppStore = create<AppState>()(
       const controller = new AbortController();
       set({ abortController: controller });
       const startTime = Date.now();
+      let multimediaTimedOut = false;
 
       try {
-        if (isImageGenerationRequest(content)) {
+        const mediaMode = requestedMediaMode;
+        if (mediaMode) {
           if (typeof navigator !== 'undefined' && !navigator.onLine) {
-            const offlineMessage = 'En este momento estoy sin conexión a internet, así que mis herramientas de dibujo están desactivadas temporalmente. ¡Vuelve a conectarme y con gusto te haré esa imagen!';
+            const offlineMessage = 'Las herramientas de generación multimedia requieren conexión a internet. Vuelve a conectarte e inténtalo de nuevo.';
             const offlineChat = get().chats.find(c => c.id === chatId);
             if (offlineChat) {
               const savedOffline: Chat = {
                 ...offlineChat,
-                messages: offlineChat.messages.map(m => m.id === assistantMsg.id ? { ...m, content: offlineMessage, isStreaming: false, isImageGenerating: false } : m),
+                messages: offlineChat.messages.map(m => m.id === assistantMsg.id ? { ...m, content: offlineMessage, isStreaming: false, isImageGenerating: false, isMediaGenerating: false } : m),
                 updatedAt: Date.now(),
               };
               set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedOffline : c), aiCenterData: s.aiCenterData ? { ...s.aiCenterData, status: 'success' } : null }));
@@ -313,39 +347,91 @@ export const useAppStore = create<AppState>()(
             return;
           }
 
-          // Image generation works regardless of selected text model — route to /api/generate-image
           const imageProvider = options?.imageProvider ?? 'auto';
-          const imageEndpoint = imageProvider === 'huggingface'
-            ? '/api/generate-image-hf'
-            : imageProvider === 'fal'
-              ? '/api/generate-image-fal'
-              : '/api/generate-image';
-          const imageResponse = await fetch(imageEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: content }),
-            signal: controller.signal,
-          });
-          const imageResult = await imageResponse.json() as { url?: string; imageUrl?: string; success?: boolean; error?: string };
-          const imageChat = get().chats.find(c => c.id === chatId);
-          if (imageChat) {
-            const finalImageUrl = imageResult.imageUrl ?? imageResult.url;
-            const ok = imageResponse.ok && Boolean(finalImageUrl);
-            const savedImage: Chat = {
-              ...imageChat,
-              messages: imageChat.messages.map(m => m.id === assistantMsg.id ? {
-                ...m,
-                content: ok
-                  ? 'Aquí tienes la imagen que imaginé para ti.'
-                  : (imageResult.error ?? 'No pude generar la imagen ahora mismo. Inténtalo de nuevo en unos segundos.'),
-                imageUrl: ok ? finalImageUrl : undefined,
-                isStreaming: false,
-                isImageGenerating: false,
-              } : m),
+          const mediaEndpoint = mediaMode === 'edit-image'
+            ? '/api/transform-image'
+            : mediaMode === 'audio'
+              ? '/api/generate-audio'
+              : mediaMode === 'video'
+                ? '/api/generate-video'
+                : imageProvider === 'huggingface'
+                  ? '/api/generate-image-hf'
+                  : imageProvider === 'fal'
+                    ? '/api/generate-image-fal'
+                    : '/api/generate-image';
+          const fetchController = new AbortController();
+          const abortUserRequest = () => fetchController.abort();
+          controller.signal.addEventListener('abort', abortUserRequest, { once: true });
+          const mediaTimeout = globalThis.setTimeout(() => {
+            multimediaTimedOut = true;
+            fetchController.abort();
+          }, mediaMode === 'video' ? 30_000 : 120_000);
+
+          let mediaResponse: Response;
+          let mediaResult: {
+            success?: boolean;
+            imageUrl?: string;
+            audioUrl?: string;
+            videoUrl?: string;
+            error?: string;
+          };
+          try {
+            mediaResponse = await fetch(mediaEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                prompt: content,
+                ...(options?.imageDataUrl ? { imageDataUrl: options.imageDataUrl } : {}),
+                ...(options?.lyrics?.trim() ? { lyrics: options.lyrics.trim() } : {}),
+              }),
+              signal: fetchController.signal,
+            });
+            try {
+              mediaResult = await mediaResponse.json();
+            } catch {
+              throw new Error(mediaMode === 'video'
+                ? 'El servidor de video devolvió una respuesta inválida. Inténtalo de nuevo.'
+                : mediaMode === 'audio'
+                  ? 'El servidor de audio devolvió una respuesta inválida. Inténtalo de nuevo.'
+                  : 'El servidor multimedia devolvió una respuesta inválida. Inténtalo de nuevo.');
+            }
+          } finally {
+            globalThis.clearTimeout(mediaTimeout);
+            controller.signal.removeEventListener('abort', abortUserRequest);
+          }
+          const mediaChat = get().chats.find(c => c.id === chatId);
+          if (mediaChat) {
+            const mediaUrl = mediaMode === 'audio'
+              ? mediaResult.audioUrl
+              : mediaMode === 'video'
+                ? mediaResult.videoUrl
+                : mediaResult.imageUrl;
+            const ok = mediaResponse.ok && Boolean(mediaUrl);
+            const completedMessage: Message = {
+              ...assistantMsg,
+              content: ok
+                ? mediaMode === 'audio'
+                  ? 'Tu audio está listo.'
+                  : mediaMode === 'video'
+                    ? 'Tu video está listo.'
+                    : mediaMode === 'edit-image'
+                      ? 'Aquí tienes la imagen transformada.'
+                      : 'Aquí tienes la imagen que imaginé para ti.'
+                : mediaResult.error ?? 'No pude completar la generación multimedia. Inténtalo de nuevo.',
+              imageUrl: mediaMode === 'image' || mediaMode === 'edit-image' ? mediaUrl : undefined,
+              audioUrl: mediaMode === 'audio' ? mediaUrl : undefined,
+              videoUrl: mediaMode === 'video' ? mediaUrl : undefined,
+              isStreaming: false,
+              isImageGenerating: false,
+              isMediaGenerating: false,
+            };
+            const savedMedia: Chat = {
+              ...mediaChat,
+              messages: mediaChat.messages.map(m => m.id === assistantMsg.id ? completedMessage : m),
               updatedAt: Date.now(),
             };
-            set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedImage : c), aiCenterData: s.aiCenterData ? { ...s.aiCenterData, status: ok ? 'success' : 'error', providerUsed: null } : null }));
-            await saveChat(savedImage);
+            set(s => ({ chats: s.chats.map(c => c.id === chatId ? savedMedia : c), aiCenterData: s.aiCenterData ? { ...s.aiCenterData, status: ok ? 'success' : 'error', providerUsed: null } : null }));
+            await saveChat(savedMedia);
           }
           return;
         }
@@ -587,9 +673,38 @@ export const useAppStore = create<AppState>()(
         const updatedProfile = updateAdaptiveProfile(currentSettings.adaptiveProfile, content);
         get().updateSettings({ adaptiveProfile: updatedProfile });
       } catch (err: unknown) {
-        if (err instanceof Error && err.name !== 'AbortError') {
+        const wasAborted = err instanceof Error && err.name === 'AbortError';
+        if (multimediaTimedOut) {
+          const timeoutMessage = 'La generación multimedia tardó demasiado tiempo. El servidor no respondió a tiempo; inténtalo de nuevo.';
+          set(s => ({
+            chats: s.chats.map(c => c.id !== chatId ? c : {
+              ...c,
+              messages: c.messages.map(m => m.id === assistantMsg.id
+                ? { ...m, content: timeoutMessage, isStreaming: false, isImageGenerating: false, isMediaGenerating: false }
+                : m),
+              updatedAt: Date.now(),
+            }),
+            aiCenterData: s.aiCenterData ? { ...s.aiCenterData, status: 'error' } : null,
+          }));
+          const timeoutChat = get().chats.find(c => c.id === chatId);
+          if (timeoutChat) await saveChat(timeoutChat);
+        } else if (wasAborted) {
+          set(s => ({
+            chats: s.chats.map(c => c.id !== chatId ? c : {
+              ...c,
+              messages: c.messages.map(m => m.id === assistantMsg.id
+                ? { ...m, content: 'Generación cancelada.', isStreaming: false, isImageGenerating: false, isMediaGenerating: false }
+                : m),
+              updatedAt: Date.now(),
+            }),
+          }));
+          const cancelledChat = get().chats.find(c => c.id === chatId);
+          if (cancelledChat) await saveChat(cancelledChat);
+        } else if (err instanceof Error) {
           console.error('[Yosseling] sendMessage error:', err);
-          let errMsg = 'Lo siento, no pude procesar tu solicitud en este momento. Por favor, intenta de nuevo.';
+          let errMsg = err.message.includes('servidor multimedia') || err.message.includes('servidor de video') || err.message.includes('servidor de audio')
+            ? err.message
+            : 'Lo siento, no pude procesar tu solicitud en este momento. Por favor, intenta de nuevo.';
           if (err.message === 'MÓVIL_OFFLINE_NO_COMPATIBLE') {
             errMsg = 'Modo offline no compatible en móviles sin servidor remoto configurado. Por favor, conéctate a internet para usar Yosseling en la nube.';
           }
@@ -600,7 +715,7 @@ export const useAppStore = create<AppState>()(
                 ...c,
                 messages: c.messages.map(m =>
                   m.id === assistantMsg.id
-                    ? { ...m, content: errMsg, isStreaming: false }
+                    ? { ...m, content: errMsg, isStreaming: false, isImageGenerating: false, isMediaGenerating: false }
                     : m
                 ),
               };
