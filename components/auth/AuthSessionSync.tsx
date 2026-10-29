@@ -14,6 +14,24 @@ export default function AuthSessionSync() {
     let active = true;
     const supabase = createClient();
 
+    const url = new URL(window.location.href);
+    const authCode = url.searchParams.get('code');
+    if (authCode) {
+      void supabase.auth.exchangeCodeForSession(authCode)
+        .then(async ({ data, error }: { data: { session: Session | null }; error: Error | null }) => {
+          if (error) throw error;
+          url.searchParams.delete('code');
+          window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+          await syncCurrentUserProfile().catch((syncError: unknown) => {
+            console.error('[Yosseling] Root OAuth profile sync failed:', syncError);
+          });
+          await applySession(data.session);
+        })
+        .catch((error: unknown) => {
+          console.error('[Yosseling] OAuth code exchange failed:', error);
+        });
+    }
+
     const applySession = async (session: Session | null) => {
       const user = session?.user;
       if (!active) return;

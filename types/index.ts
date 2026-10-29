@@ -148,7 +148,7 @@ export interface AppSettings {
 
 export type SidebarView =
   | 'chats' | 'favorites' | 'pinned' | 'shared' | 'memory'
-  | 'documents' | 'images' | 'printers' | 'settings' | 'shortcuts' | 'help';
+  | 'documents' | 'images' | 'gallery' | 'printers' | 'settings' | 'shortcuts' | 'help';
 
 export type RightPanelView = 'tools' | 'settings' | 'files' | 'memory';
 

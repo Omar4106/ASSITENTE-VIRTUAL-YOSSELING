@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, MessageSquare, Star, Pin, Share2, Brain, FileText, Image as ImageIcon, Printer, Settings, Keyboard, CircleHelp as HelpCircle, ChevronRight, Search, MoveHorizontal as MoreHorizontal, CreditCard as Edit2, Trash2, PinOff, Heart, X, User, Zap, Clock } from 'lucide-react';
+import { Plus, MessageSquare, Star, Pin, Share2, Brain, FileText, Image as ImageIcon, Printer, Settings, Keyboard, CircleHelp as HelpCircle, ChevronRight, Search, MoveHorizontal as MoreHorizontal, CreditCard as Edit2, Trash2, PinOff, Heart, X, User, Zap, Clock, Grid2X2 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import type { Chat, SidebarView } from '@/types';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,7 @@ const NAV_ITEMS: { id: SidebarView; icon: React.ReactNode; label: string }[] = [
   { id: 'memory', icon: <Brain size={16} />, label: 'Memoria' },
   { id: 'documents', icon: <FileText size={16} />, label: 'Documentos' },
   { id: 'images', icon: <ImageIcon size={16} />, label: 'Imágenes' },
+  { id: 'gallery', icon: <Grid2X2 size={16} />, label: 'Galería / Mis Creaciones' },
   { id: 'printers', icon: <Printer size={16} />, label: 'Impresoras' },
   { id: 'settings', icon: <Settings size={16} />, label: 'Configuración' },
   { id: 'shortcuts', icon: <Keyboard size={16} />, label: 'Atajos de teclado' },
@@ -148,7 +149,7 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
     };
   }, []);
 
-  const PANEL_VIEWS = ['memory', 'settings', 'help', 'shortcuts'];
+  const PANEL_VIEWS = ['memory', 'settings', 'help', 'shortcuts', 'gallery'];
 
   const handleNavSelect = (id: SidebarView) => {
     setSidebarView(id);

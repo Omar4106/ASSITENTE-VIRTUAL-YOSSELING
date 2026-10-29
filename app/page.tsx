@@ -11,6 +11,7 @@ import { MobileNav } from '@/components/mobile/MobileNav';
 import { MemoryPanel } from '@/components/panels/MemoryPanel';
 import { SettingsPanel } from '@/components/panels/SettingsPanel';
 import { HelpPanel } from '@/components/panels/HelpPanel';
+import { GalleryPanel } from '@/components/panels/GalleryPanel';
 import { CinematicBackground } from '@/components/background/CinematicBackground';
 import { ClientOnly } from '@/components/ui/ClientOnly';
 import { X } from 'lucide-react';
@@ -26,6 +27,7 @@ function PanelContent() {
   if (sidebarView === 'memory') return <MemoryPanel />;
   if (sidebarView === 'settings') return <SettingsPanel />;
   if (sidebarView === 'help') return <HelpPanel />;
+  if (sidebarView === 'gallery') return <GalleryPanel />;
   return null;
 }
 
@@ -100,7 +102,8 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  const isPanelView = ['memory', 'settings', 'help', 'shortcuts'].includes(sidebarView);
+  const isPanelView = ['memory', 'settings', 'help', 'shortcuts', 'gallery'].includes(sidebarView);
+
 
   return (
     <>
