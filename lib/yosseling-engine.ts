@@ -2,6 +2,7 @@
 
 import { buildSystemPrompt } from '@/lib/personality';
 import type { Provider, AdaptiveProfile } from '@/types';
+import { createClient } from '@/lib/supabase/client';
 
 export type RuntimeMode = 'cloud' | 'local';
 
@@ -146,6 +147,20 @@ export async function sendThroughYosseling(request: EngineRequest): Promise<{ re
   const online = typeof navigator === 'undefined' || navigator.onLine;
   const mode = getRuntimeMode();
 
+  const buildCloudHeaders = async (): Promise<Record<string, string>> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        headers.Authorization = `Bearer ${session.access_token}`;
+      }
+    } catch (error) {
+      console.warn('[Yosseling] Supabase session header unavailable; continuing for guest mode:', error);
+    }
+    return headers;
+  };
+
   if (mode === 'local' && config.configured) {
     try {
       const response = await callOllama(request, config);
@@ -155,11 +170,11 @@ export async function sendThroughYosseling(request: EngineRequest): Promise<{ re
         try {
           const response = await fetch('/api/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: await buildCloudHeaders(),
             body: JSON.stringify(request),
             signal: request.signal,
           });
-          if (response.ok && response.headers.get('X-Yosseling-Failure') !== 'true') return { response, mode: 'cloud' };
+          if (response.ok) return { response, mode: 'cloud' };
         } catch { /* cloud also failed */ }
       }
       throw new Error('El motor local no respondió. Verifica que Ollama esté en ejecución o cambia al Modo Nube.');
@@ -170,11 +185,11 @@ export async function sendThroughYosseling(request: EngineRequest): Promise<{ re
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await buildCloudHeaders(),
         body: JSON.stringify(request),
         signal: request.signal,
       });
-      if (response.ok && response.headers.get('X-Yosseling-Failure') !== 'true') return { response, mode: 'cloud' };
+      if (response.ok) return { response, mode: 'cloud' };
     } catch { /* Fall through to local engine */ }
   }
 

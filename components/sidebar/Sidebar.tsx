@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, MessageSquare, Star, Pin, Share2, Brain, FileText, Image as ImageIcon, Printer, Settings, Keyboard, CircleHelp as HelpCircle, ChevronRight, Search, MoveHorizontal as MoreHorizontal, CreditCard as Edit2, Trash2, PinOff, Heart, X, User, Zap, Clock, Grid2X2 } from 'lucide-react';
+import { Plus, MessageSquare, Star, Pin, Share2, Brain, FileText, Image as ImageIcon, Printer, Settings, Keyboard, CircleHelp as HelpCircle, ChevronRight, Search, MoveHorizontal as MoreHorizontal, CreditCard as Edit2, Trash2, PinOff, Heart, X, User, Zap, Clock, Grid2X2, LogOut } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import type { Chat, SidebarView } from '@/types';
 import { cn } from '@/lib/utils';
@@ -128,11 +128,31 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
     chats, activeChatId, sidebarView, setSidebarView,
     createNewChat, selectedModel,
     settings, searchQuery, setSearchQuery,
-    setSidebarOpen, authUser,
+    setSidebarOpen, authUser, setAuthUser, updateSettings,
   } = useAppStore();
 
   const [collapsed, setCollapsed] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setAuthUser(null);
+      updateSettings({ userName: 'Usuario', userNickname: '', userAvatar: null });
+      setShowUserMenu(false);
+      window.location.assign('/');
+    } catch (error) {
+      console.error('[Yosseling] Sign out failed:', error);
+      alert(error instanceof Error ? error.message : 'No se pudo cerrar la sesión.');
+      setSigningOut(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -338,6 +358,7 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
             exit={{ opacity: 0 }}
             className="border-t border-white/[0.06] p-3 space-y-2"
           >
+            <div className="relative">
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/5">
               {settings.userAvatar ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -351,6 +372,31 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
                 <p className="text-xs font-medium text-white truncate">{settings.userName}</p>
                 <p className="text-[10px] text-[#B3B3B3]">{authUser ? 'Cuenta conectada' : 'Modo invitado'}</p>
               </div>
+              {authUser && (
+                <button
+                  type="button"
+                  onClick={() => setShowUserMenu((value) => !value)}
+                  className="rounded-md p-1.5 text-white/50 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Abrir menú de cuenta"
+                  aria-expanded={showUserMenu}
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+              )}
+            </div>
+            {authUser && showUserMenu && (
+              <div className="absolute bottom-full left-0 right-0 z-50 mb-1 overflow-hidden rounded-lg border border-white/10 bg-[#151620] shadow-xl">
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  disabled={signingOut}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-xs text-red-300 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <LogOut size={13} />
+                  {signingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
+                </button>
+              </div>
+            )}
             </div>
             {!authUser && (
               <button

@@ -54,7 +54,7 @@ interface ContentPart {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function streamText(msg: string, failed = false): NextResponse {
+function streamText(msg: string, failed = false, reason?: string): NextResponse {
   const enc = new TextEncoder();
   return new NextResponse(
     new ReadableStream({
@@ -64,7 +64,14 @@ function streamText(msg: string, failed = false): NextResponse {
         c.close();
       },
     }),
-    { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', ...(failed ? { 'X-Yosseling-Failure': 'true' } : {}) } }
+    { headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      ...(failed ? {
+        'X-Yosseling-Failure': 'true',
+        'X-Yosseling-Failure-Reason': (reason ?? 'Proveedor no disponible').replace(/[\r\n]/g, ' ').slice(0, 500),
+      } : {}),
+    } }
   );
 }
 
@@ -359,16 +366,27 @@ export async function POST(req: NextRequest) {
 
     try {
       const supabase = await createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      let { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        const authorization = req.headers.get('authorization') ?? '';
+        const accessToken = authorization.startsWith('Bearer ')
+          ? authorization.slice('Bearer '.length).trim()
+          : '';
+        if (accessToken) {
+          const { data } = await supabase.auth.getUser(accessToken);
+          user = data.user;
+        }
+      }
       if (user) {
+        const authenticatedUserId = user.id;
         const [{ data: profile }, { data: memories }] = await Promise.all([
           supabase.from('profiles')
             .select('name, nickname')
-            .eq('id', user.id)
+            .eq('id', authenticatedUserId)
             .maybeSingle(),
           supabase.from('user_memories')
             .select('category, content, importance_score')
-            .eq('user_id', user.id)
+            .eq('user_id', authenticatedUserId)
             .order('importance_score', { ascending: false })
             .order('created_at', { ascending: false })
             .limit(30),
@@ -390,7 +408,7 @@ export async function POST(req: NextRequest) {
 
         const nickname = detectPreferredNickname(lastUserText);
         if (nickname) {
-          void supabase.from('profiles').update({ nickname }).eq('id', user.id).then(({ error }) => {
+          void supabase.from('profiles').update({ nickname }).eq('id', authenticatedUserId).then(({ error }) => {
             if (error) console.error('[Yosseling] Nickname save failed:', error.message);
           });
         }
@@ -401,7 +419,7 @@ export async function POST(req: NextRequest) {
         if (detectedMemories.length) {
           void supabase.from('user_memories').insert(
             detectedMemories.map((memory) => ({
-              user_id: user.id,
+              user_id: authenticatedUserId,
               category: memory.category,
               content: memory.content,
               importance_score: memory.importanceScore,
@@ -539,7 +557,15 @@ export async function POST(req: NextRequest) {
     }
 
     console.error('[Yosseling] All configured providers failed:', failureReasons.join(' | '));
-    return streamText('Los proveedores configurados no pudieron responder. Verifica que las claves API estén vigentes y que el modelo seleccionado siga disponible.', true);
+    const providerFailureReason = failureReasons.length
+      ? `Fallo IA: ${failureReasons.join(' | ')}`
+      : 'Ningún proveedor IA disponible';
+    console.error('[Yosseling] Provider diagnostics:', providerFailureReason);
+    return streamText(
+      'Los proveedores configurados no pudieron responder. Verifica que las claves API estén vigentes y que el modelo seleccionado siga disponible.',
+      true,
+      providerFailureReason,
+    );
   } catch (err) {
     console.error('[Yosseling] Router unexpected error:', err);
     return streamText('Ocurrió un error inesperado. Por favor intenta de nuevo.', true);
