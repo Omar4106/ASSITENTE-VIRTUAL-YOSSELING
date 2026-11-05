@@ -51,7 +51,6 @@ export function CodeEditor({ className, readOnly = true }: CodeEditorProps) {
   const [language, setLanguage] = useState(activeFile?.language ?? 'typescript');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Sync con el estado del workspace al seleccionar/archivar archivos
   useEffect(() => {
     if (activeFile) {
       setCode(activeFile.content);
@@ -60,23 +59,28 @@ export function CodeEditor({ className, readOnly = true }: CodeEditorProps) {
       setCode('');
       setLanguage('typescript');
     }
-  }, [activeFile]);
+  }, [activeFile?.id, activeFile?.content, activeFile?.language]);
 
-  // Autoguardar cambios
   useEffect(() => {
     if (!activeFile || readOnly) return;
 
-    const timer = setTimeout(() => {
-      const updatedFiles = workspaceFiles.map(f =>
-        f.id === activeFile.id
-          ? { ...f, content: code, isModified: true, updatedAt: Date.now() }
-          : f
-      );
-      useAppStore.getState().setWorkspaceFiles(updatedFiles);
-    }, 500);
+    const timeoutId = window.setTimeout(() => {
+      const currentState = useAppStore.getState();
+      let didChange = false;
+      const updatedFiles = currentState.workspaceFiles.map((file) => {
+        if (file.id !== activeFile.id) return file;
+        if (file.content === code) return file;
+        didChange = true;
+        return { ...file, content: code, isModified: true, updatedAt: Date.now() };
+      });
 
-    return () => clearTimeout(timer);
-  }, [code, activeFile, workspaceFiles, readOnly]);
+      if (didChange) {
+        currentState.setWorkspaceFiles(updatedFiles);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [code, activeFile?.id, readOnly]);
 
   const highlightCode = (code: string, lang: string): string => {
     const config = LANGUAGE_SYNTAX_CONFIG[lang] || LANGUAGE_SYNTAX_CONFIG.typescript;

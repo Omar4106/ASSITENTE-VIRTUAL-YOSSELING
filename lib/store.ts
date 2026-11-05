@@ -520,52 +520,120 @@ export const useActiveChat = () =>
 
 export const useAppStoreForSettings = useAppStore;
 
+function inferArtifactMeta(content: string, pathHint?: string) {
+  const normalized = content.trim();
+  if (!normalized) {
+    return { language: 'markdown', path: pathHint ?? 'document.md', tab: 'preview' as const };
+  }
+
+  const lowerPath = (pathHint ?? '').toLowerCase();
+  const knownLanguage = lowerPath.endsWith('.tsx') || lowerPath.endsWith('.jsx') || lowerPath.endsWith('.ts') || lowerPath.endsWith('.js') || lowerPath.endsWith('.py') || lowerPath.endsWith('.html') || lowerPath.endsWith('.css') || lowerPath.endsWith('.json') || lowerPath.endsWith('.md') ? lowerPath.split('.').pop() ?? '' : '';
+
+  if (lowerPath.endsWith('.html') || /<!doctype html|<html|<body|<div|<section|<main/i.test(normalized)) {
+    return { language: 'html', path: pathHint ?? 'artifact.html', tab: 'preview' as const };
+  }
+
+  if (lowerPath.endsWith('.md') || /^(#\s|\n#\s|[-*]\s|\d+\.\s)/m.test(normalized) || /```markdown/i.test(normalized)) {
+    return { language: 'markdown', path: pathHint ?? 'document.md', tab: 'preview' as const };
+  }
+
+  if (lowerPath.endsWith('.json') || /^\s*[\[{]/.test(normalized)) {
+    try {
+      JSON.parse(normalized);
+      return { language: 'json', path: pathHint ?? 'artifact.json', tab: 'code' as const };
+    } catch {
+      // fall through to other detection
+    }
+  }
+
+  if (lowerPath.endsWith('.py') || /^(from\s+\w+\s+import|import\s+\w+|def\s+\w+\s*\(|class\s+\w+\s*\(|if\s+__name__\s*==\s*['\"]__main__['\"])/m.test(normalized)) {
+    return { language: 'python', path: pathHint ?? 'script.py', tab: 'code' as const };
+  }
+
+  if (lowerPath.endsWith('.tsx') || lowerPath.endsWith('.jsx') || /export\s+(default\s+)?function|const\s+\w+\s*=\s*\(|return\s*\(\s*<|import\s+React/i.test(normalized)) {
+    return { language: 'tsx', path: pathHint ?? 'Component.tsx', tab: 'code' as const };
+  }
+
+  if (lowerPath.endsWith('.ts') || lowerPath.endsWith('.js') || /const\s+\w+\s*=|function\s+\w+\s*\(|console\.log\(|export\s+\{/.test(normalized)) {
+    return { language: 'typescript', path: pathHint ?? 'script.ts', tab: 'code' as const };
+  }
+
+  if (lowerPath.endsWith('.css') || /\.[A-Za-z-]+\s*\{|#\w+\s*\{|display:\s*flex|@media/i.test(normalized)) {
+    return { language: 'css', path: pathHint ?? 'styles.css', tab: 'code' as const };
+  }
+
+  if (knownLanguage) {
+    return { language: knownLanguage, path: pathHint ?? `artifact.${knownLanguage}`, tab: knownLanguage === 'html' || knownLanguage === 'md' || knownLanguage === 'markdown' ? 'preview' as const : 'code' as const };
+  }
+
+  return { language: 'markdown', path: pathHint ?? 'document.md', tab: 'preview' as const };
+}
+
+function upsertWorkspaceArtifact(currentFiles: Array<{ id: string; path: string; content: string; language: string; type: string; isModified: boolean; createdAt: number; updatedAt: number }>, filePath: string, content: string, language: string, tab: 'preview' | 'code') {
+  const existingIndex = currentFiles.findIndex(f => f.path === filePath);
+  if (existingIndex >= 0) {
+    const current = currentFiles[existingIndex];
+    if (current.content !== content) {
+      currentFiles[existingIndex] = {
+        ...current,
+        content,
+        language: language as any,
+        type: filePath.includes('components/') ? 'component' : filePath.includes('styles') ? 'style' : 'page',
+        isModified: true,
+        updatedAt: Date.now(),
+      };
+    }
+    return { modified: current.content !== content, nextTab: tab };
+  }
+
+  currentFiles.push({
+    id: crypto.randomUUID(),
+    path: filePath,
+    content,
+    language: language as any,
+    type: filePath.includes('components/') ? 'component' : filePath.includes('styles') ? 'style' : 'page',
+    isModified: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+  return { modified: true, nextTab: tab };
+}
+
 function extractAndSyncWorkspaceFiles(content: string) {
   if (typeof window === 'undefined' || !content) return;
 
-  const codeBlockRegex = /```([a-z]+)?(?:\s+\/\/\s*([^\n]+))?\n([\s\S]*?)```/g;
+  const codeBlockRegex = /```([a-zA-Z0-9_-]+)?(?:\s*(?:\/\/|#|--)\s*([^\n]+))?\n([\s\S]*?)```/g;
+  const currentFiles = [...useAppStore.getState().workspaceFiles];
   let match;
   let modified = false;
-  const currentFiles = [...useAppStore.getState().workspaceFiles];
+  let nextTab: 'preview' | 'code' = 'preview';
 
+  codeBlockRegex.lastIndex = 0;
   while ((match = codeBlockRegex.exec(content)) !== null) {
-    const lang = match[1] || 'typescript';
-    let pathHint = match[2]?.trim();
+    const rawLanguage = ((match[1] ?? 'typescript').toLowerCase().trim());
+    const pathHint = match[2]?.trim();
     const codeContent = match[3]?.trim();
 
     if (!codeContent) continue;
 
-    if (!pathHint) {
-      if (lang === 'tsx' || lang === 'jsx') pathHint = `src/components/Component_${Math.random().toString(36).slice(2, 6)}.tsx`;
-      else if (lang === 'css') pathHint = `src/styles/styles.css`;
-      else if (lang === 'json') pathHint = `data.json`;
-      else pathHint = `src/App.tsx`;
-    }
+    const knownLanguages = new Set(['tsx', 'jsx', 'ts', 'js', 'py', 'html', 'css', 'json', 'markdown', 'md']);
+    const inferred = inferArtifactMeta(codeContent, pathHint);
+    const language = knownLanguages.has(rawLanguage) ? rawLanguage : inferred.language;
+    const resolvedPath = pathHint ?? inferred.path;
+    const resolvedTab = rawLanguage === 'markdown' || rawLanguage === 'html' || inferred.tab === 'preview' ? 'preview' : 'code';
 
-    const existingIndex = currentFiles.findIndex(f => f.path === pathHint);
-    if (existingIndex >= 0) {
-      if (currentFiles[existingIndex].content !== codeContent) {
-        currentFiles[existingIndex] = {
-          ...currentFiles[existingIndex],
-          content: codeContent,
-          isModified: true,
-          updatedAt: Date.now()
-        };
-        modified = true;
-      }
-    } else {
-      currentFiles.push({
-        id: crypto.randomUUID(),
-        path: pathHint,
-        content: codeContent,
-        language: lang as any,
-        type: pathHint.includes('components/') ? 'component' : 'page',
-        isModified: true,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      });
-      modified = true;
-    }
+    const result = upsertWorkspaceArtifact(currentFiles, resolvedPath, codeContent, language, resolvedTab);
+    modified = modified || result.modified;
+    nextTab = result.nextTab;
+  }
+
+  codeBlockRegex.lastIndex = 0;
+  const trimmed = content.trim();
+  if (!codeBlockRegex.test(content) && trimmed.length > 0) {
+    const fallbackMeta = inferArtifactMeta(trimmed, 'document.md');
+    const fallbackResult = upsertWorkspaceArtifact(currentFiles, fallbackMeta.path, trimmed, fallbackMeta.language, fallbackMeta.tab);
+    modified = modified || fallbackResult.modified;
+    nextTab = fallbackResult.nextTab;
   }
 
   if (modified) {
@@ -573,10 +641,13 @@ function extractAndSyncWorkspaceFiles(content: string) {
       workspaceFiles: currentFiles,
       rightPanelOpen: true,
       isWorkspaceOpen: true,
-      workspacePanelTab: 'preview',
+      workspacePanelTab: nextTab,
     });
     if (!useAppStore.getState().activeWorkspaceFile && currentFiles.length > 0) {
       useAppStore.setState({ activeWorkspaceFile: currentFiles[0].id });
+    } else if (currentFiles.length > 0) {
+      const active = useAppStore.getState().activeWorkspaceFile ?? currentFiles[currentFiles.length - 1].id;
+      useAppStore.setState({ activeWorkspaceFile: active });
     }
   }
 }

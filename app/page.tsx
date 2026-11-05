@@ -269,10 +269,10 @@ export default function Home() {
             />
           </div>
 
-          <div className={`flex flex-1 min-h-0 overflow-hidden ${isToolsOpen ? 'hidden' : ''}`}>
-            <div className={`flex flex-1 min-h-0 overflow-hidden ${shouldShowWorkspace ? '' : 'w-full'}`}>
+          <div className={`flex flex-1 min-h-0 overflow-hidden transition-all duration-300 ease-in-out ${isToolsOpen ? 'hidden' : ''}`}>
+            <div className={`flex flex-1 min-h-0 overflow-hidden transition-all duration-300 ease-in-out ${shouldShowWorkspace ? '' : 'w-full'}`}>
               <div
-                className={`relative h-full ${shouldShowWorkspace ? 'w-[50%]' : 'w-full'} min-w-0 overflow-hidden`}
+                className={`relative h-full min-w-0 overflow-hidden transition-all duration-300 ease-in-out ${shouldShowWorkspace ? 'w-[50%]' : 'w-full'}`}
               >
                 <div
                   className="absolute inset-0"
@@ -294,8 +294,8 @@ export default function Home() {
                     initial={{ opacity: 0, x: 24, width: 0 }}
                     animate={{ opacity: 1, x: 0, width: '50%' }}
                     exit={{ opacity: 0, x: 24, width: 0 }}
-                    transition={{ duration: 0.25, ease: 'easeOut' }}
-                    className="hidden min-h-0 flex-col border-l border-white/10 bg-[#090b12]/90 backdrop-blur-xl md:flex"
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                    className="hidden min-h-0 flex-col border-l border-white/10 bg-[#090b12]/90 backdrop-blur-xl transition-all duration-300 ease-in-out md:flex"
                     style={{ width: '50%' }}
                   >
                     <WorkspaceCanvas />
