@@ -11,7 +11,7 @@ export const maxDuration = 120;
 const OVH_SDXL_URL =
   'https://stable-diffusion-xl.endpoints.kepler.ai.cloud.ovh.net/api/text2image';
 const OVH_OAI_URL = 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/images/generations';
-const HF_ROUTER_URL = 'https://router.huggingface.co/v1/images/generations';
+const HF_IMAGE_URL = 'https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell';
 
 function bytesToDataUrl(bytes: ArrayBuffer, mime = 'image/jpeg'): string {
   const buffer = Buffer.from(bytes);
@@ -92,65 +92,34 @@ async function tryHuggingFace(prompt: string): Promise<string | null> {
   if (!token) return null;
 
   try {
-    const res = await fetch(HF_ROUTER_URL, {
+    const res = await fetch(HF_IMAGE_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
+        Accept: 'image/png',
       },
       body: JSON.stringify({
-        model: 'black-forest-labs/FLUX.1-schnell',
-        prompt: `${prompt}, ultra-detailed, sharp focus, 8k resolution, crisp typography, clean vector style when applicable`,
-        size: '1024x1024',
-        response_format: 'b64_json',
-        n: 1,
+        inputs: `${prompt}, ultra-detailed, sharp focus, 8k resolution, crisp typography, clean vector style when applicable`,
+        parameters: {
+          width: 1024,
+          height: 1024,
+          num_inference_steps: 4,
+          guidance_scale: 0,
+        },
       }),
       signal: AbortSignal.timeout(90000),
     });
 
     if (!res.ok) {
-      // Legacy inference fallback
-      const legacy = await fetch(
-        'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            Accept: 'image/png',
-          },
-          body: JSON.stringify({
-            inputs: `${prompt}, ultra-detailed, sharp focus, 8k resolution, crisp typography, clean vector style when applicable`,
-            parameters: {
-              width: 1024,
-              height: 1024,
-              num_inference_steps: 40,
-              guidance_scale: 7.5,
-            },
-          }),
-          signal: AbortSignal.timeout(90000),
-        },
-      );
-      if (!legacy.ok) return null;
-      const bytes = await legacy.arrayBuffer();
-      if (!bytes.byteLength) return null;
-      return bytesToDataUrl(bytes, 'image/png');
-    }
-
-    const contentType = res.headers.get('content-type') ?? '';
-    if (contentType.includes('application/json')) {
-      const data = (await res.json()) as {
-        data?: Array<{ b64_json?: string; url?: string }>;
-      };
-      const item = data.data?.[0];
-      if (item?.b64_json) return `data:image/png;base64,${item.b64_json}`;
-      if (item?.url) return item.url;
+      console.error('[generate-image] HF failed', res.status);
       return null;
     }
 
+    const contentType = res.headers.get('content-type') ?? '';
     const bytes = await res.arrayBuffer();
     if (!bytes.byteLength) return null;
-    return bytesToDataUrl(bytes, 'image/png');
+    return bytesToDataUrl(bytes, contentType.includes('png') ? 'image/png' : 'image/jpeg');
   } catch (err) {
     console.error('[generate-image] HF failed', err instanceof Error ? err.message : err);
     return null;

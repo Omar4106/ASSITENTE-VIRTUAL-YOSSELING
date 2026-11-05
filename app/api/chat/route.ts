@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
+        'Bypass-Tunnel-Remainder': 'true',
       },
       body: JSON.stringify({
         model: 'auto',

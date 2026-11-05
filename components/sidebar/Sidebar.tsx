@@ -129,6 +129,7 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
     createNewChat, selectedModel,
     settings, searchQuery, setSearchQuery,
     setSidebarOpen, authUser, setAuthUser, updateSettings,
+    setIsWorkspaceOpen,
   } = useAppStore();
 
   const [collapsed, setCollapsed] = useState(false);
@@ -190,6 +191,11 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
     searchQuery ? c.title.toLowerCase().includes(searchQuery.toLowerCase()) : true
   );
 
+  const handleNewChat = () => {
+    setIsWorkspaceOpen(false);
+    createNewChat();
+  };
+
   return (
     <motion.aside
       initial={false}
@@ -237,7 +243,7 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={createNewChat}
+                onClick={handleNewChat}
                 className={cn(
                   'w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
                   'bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-500 hover:to-purple-400',

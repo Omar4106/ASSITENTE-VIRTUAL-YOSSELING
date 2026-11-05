@@ -14,6 +14,7 @@ import { HelpPanel } from '@/components/panels/HelpPanel';
 import { GalleryPanel } from '@/components/panels/GalleryPanel';
 import { CinematicBackground } from '@/components/background/CinematicBackground';
 import { ClientOnly } from '@/components/ui/ClientOnly';
+import { WorkspaceCanvas } from '@/components/workspace/WorkspaceCanvas';
 import { X } from 'lucide-react';
 
 const AdvancedTools = dynamic(
@@ -37,8 +38,13 @@ export default function Home() {
   const [hasOpenedTools, setHasOpenedTools] = useState(false);
   const {
     initStore, sidebarOpen, setSidebarOpen, sidebarView, createNewChat, settings,
-    setConversationSection,
+    setConversationSection, workspaceFiles, isWorkspaceOpen, setIsWorkspaceOpen,
   } = useAppStore();
+
+  const handleNewChat = useCallback(() => {
+    setIsWorkspaceOpen(false);
+    createNewChat();
+  }, [createNewChat, setIsWorkspaceOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,9 +94,9 @@ export default function Home() {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
       e.preventDefault();
-      createNewChat();
+      handleNewChat();
     }
-  }, [createNewChat]);
+  }, [handleNewChat]);
 
   const toggleTools = useCallback(() => {
     setIsToolsOpen((open) => !open);
@@ -103,7 +109,7 @@ export default function Home() {
   }, [handleKeyDown]);
 
   const isPanelView = ['memory', 'settings', 'help', 'shortcuts', 'gallery'].includes(sidebarView);
-
+  const shouldShowWorkspace = isWorkspaceOpen && workspaceFiles.length > 0;
 
   return (
     <>
@@ -264,18 +270,38 @@ export default function Home() {
           </div>
 
           <div className={`flex flex-1 min-h-0 overflow-hidden ${isToolsOpen ? 'hidden' : ''}`}>
-            <div className="flex-1 min-w-0 overflow-hidden relative">
+            <div className={`flex flex-1 min-h-0 overflow-hidden ${shouldShowWorkspace ? '' : 'w-full'}`}>
               <div
-                className="absolute inset-0"
-                style={{
-                  background: 'rgba(6,4,16,0.55)',
-                  backdropFilter: 'blur(8px)',
-                  WebkitBackdropFilter: 'blur(8px)',
-                }}
-              />
-              <div className="relative h-full">
-                <ChatArea />
+                className={`relative h-full ${shouldShowWorkspace ? 'w-[50%]' : 'w-full'} min-w-0 overflow-hidden`}
+              >
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background: 'rgba(6,4,16,0.55)',
+                    backdropFilter: 'blur(8px)',
+                    WebkitBackdropFilter: 'blur(8px)',
+                  }}
+                />
+                <div className="relative h-full">
+                  <ChatArea />
+                </div>
               </div>
+
+              <AnimatePresence>
+                {shouldShowWorkspace && (
+                  <motion.aside
+                    key="workspace-panel"
+                    initial={{ opacity: 0, x: 24, width: 0 }}
+                    animate={{ opacity: 1, x: 0, width: '50%' }}
+                    exit={{ opacity: 0, x: 24, width: 0 }}
+                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                    className="hidden min-h-0 flex-col border-l border-white/10 bg-[#090b12]/90 backdrop-blur-xl md:flex"
+                    style={{ width: '50%' }}
+                  >
+                    <WorkspaceCanvas />
+                  </motion.aside>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 

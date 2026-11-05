@@ -152,6 +152,68 @@ export type SidebarView =
 
 export type RightPanelView = 'tools' | 'settings' | 'files' | 'memory';
 
+// ── Workspace Type-CANVAS Types ───────────────────────────────
+
+/** Tipo de panel en el centro del workspace */
+export type WorkspacePanelTab =
+  | 'preview'
+  | 'code'
+  | 'files'
+  | 'exports';
+
+/** Archivo en el virtual file system del workspace */
+export interface WorkspaceFile {
+  id: string;
+  chatId?: string;
+  path: string;
+  content: string;
+  language: 'typescript' | 'javascript' | 'jsx' | 'tsx' | 'css' | 'html' | 'json' | 'markdown' | 'py' | 'python';
+  type: 'component' | 'page' | 'style' | 'config' | 'route' | 'other';
+  isModified: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Resultado de búsqueda web del motor de búsqueda */
+export interface SearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+  timestamp: number;
+  source?: string;
+}
+
+/** Formatos de exportación */
+export type ExportFormat =
+  | 'typescript'
+  | 'javascript'
+  | 'react'
+  | 'html'
+  | 'css'
+  | 'json'
+  | 'markdown'
+  | 'pdf';
+
+/** Resultado de exportación */
+export interface ExportResult {
+  success: boolean;
+  format: ExportFormat;
+  data?: string | ArrayBuffer;
+  filename?: string;
+  error?: string;
+}
+
+/** Contexto de ejecución para el preview live */
+export interface ExecutionContext {
+  files: WorkspaceFile[];
+  rootPath: string;
+  config: {
+    framework: 'next' | 'react';
+    bundler: 'vite' | 'webpack' | null;
+    buildTarget: 'development' | 'production';
+  };
+}
+
 export interface AICenterData {
   activeProvider: Provider;
   activeModel: string;

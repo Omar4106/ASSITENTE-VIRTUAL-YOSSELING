@@ -84,6 +84,168 @@ function CodeBlock({ language, children }: { language: string; children: string 
 }
 
 const GENERAR_IMAGEN_REGEX = /\[GENERAR_IMAGEN:\s*([^\]]+)\]/i;
+const GENERAR_DIAGRAMA_REGEX = /\[GENERAR_DIAGRAMA:\s*([^\]]+)\]/i;
+const GENERAR_FICHA_REGEX = /\[GENERAR_FICHA:\s*([^]]+)\]/i;
+const GENERAR_TABLA_REGEX = /\[GENERAR_TABLA:\s*([^\]]+)\]/i;
+
+// Componentes para diagramas (SVG dinámico)
+interface DiagramFlowProps {
+  elements: Array<{ text: string; type: 'process' | 'decision' | 'data' }>;
+}
+
+function DiagramFlow({ elements }: DiagramFlowProps): JSX.Element {
+  const width = Math.max(300, elements.length * 150);
+  const y = 55;
+
+  const svgElements = elements.map((el, i) => {
+    const x = i * 150 + 75;
+    let shape;
+    if (el.type === 'decision') {
+      shape = (
+        <polygon points={`${x},${y + 30} ${x + 40},${y + 55} ${x},${y + 80} ${x - 40},${y + 55}`} />
+      );
+    } else if (el.type === 'data') {
+      shape = (
+        <rect x={x - 35} y={y + 30} width={70} height={50} rx={4} />
+      );
+    } else {
+      shape = (
+        <rect x={x - 50} y={y + 25} width={100} height={60} rx={4} />
+      );
+    }
+    return (
+      <g key={i}>
+        {shape}
+        <text x={x} y={y + 50} textAnchor="middle" fill="white" fontSize="9" fontWeight="bold">
+          {el.text}
+        </text>
+      </g>
+    );
+  });
+
+  return (
+    <svg width={width} height={110} viewBox={`0 0 ${width} 110`} className="mx-auto">
+      <defs>
+        <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="0" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="#8b5cf6" />
+        </marker>
+      </defs>
+      {svgElements}
+      {[...Array(elements.length - 1)].map((_, i) => {
+        const x1 = i * 150 + 125;
+        const y1 = 55;
+        const x2 = (i + 1) * 150 + 25;
+        const y2 = 55;
+        if (elements[i].type === 'decision') {
+          return (
+            <path
+              key={`arrow-${i}`}
+              d={`M${x1 + 40},${y1} L${x2 - 10},${y1 - 20} L${x2 - 10},${y2 + 20} L${x2 - 10},${y2}`}
+              fill="none"
+              stroke="#8b5cf6"
+              strokeWidth={2}
+              markerEnd="url(#arrowhead)"
+            />
+          );
+        } else if (elements[i + 1].type === 'decision') {
+          return (
+            <path
+              key={`arrow-${i}`}
+              d={`M${x1},${y1} L${x2 - 10},${y1} L${x2 - 10},${y2 - 20} L${x2 - 10},${y2}`}
+              fill="none"
+              stroke="#8b5cf6"
+              strokeWidth={2}
+              markerEnd="url(#arrowhead)"
+            />
+          );
+        } else {
+          return (
+            <line
+              key={`arrow-${i}`}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              stroke="#8b5cf6"
+              strokeWidth={2}
+              markerEnd="url(#arrowhead)"
+            />
+          );
+        }
+      })}
+    </svg>
+  );
+}
+
+// Componente para fichas educativas (símbolos patrios)
+interface FichaPatrioticaProps {
+  titulo: string;
+  contenido: string;
+  tema: 'argentina' | 'mexico' | 'colombia' | 'espana';
+}
+
+function FichaPatriotica({ titulo, contenido, tema }: FichaPatrioticaProps): JSX.Element {
+  const colores = {
+    argentina: { bg: 'bg-gradient-to-br from-blue-900/10 to-red-900/10', border: 'border-blue-500/30' },
+    mexico: { bg: 'bg-gradient-to-br from-red-900/10 to-green-900/10', border: 'border-red-500/30' },
+    colombia: { bg: 'bg-gradient-to-br from-yellow-600/10 to-blue-900/10', border: 'border-yellow-600/30' },
+    espana: { bg: 'bg-gradient-to-br from-red-100/10 to-yellow-200/10', border: 'border-red-500/30' },
+  };
+
+  const config = colores[tema] || colores.argentina;
+
+  return (
+    <div className={`mt-3 rounded-xl border ${config.border} ${config.bg} p-3`}>
+      <h4 className="text-xs font-bold text-white mb-1.5">{titulo}</h4>
+      <p className="text-[12px] leading-relaxed text-slate-200 whitespace-pre-wrap">{contenido}</p>
+    </div>
+  );
+}
+
+// Componente para tablas
+interface RegisteredTableProps {
+  cabeceras: string[];
+  filas: string[][];
+  clase: string;
+}
+
+function RegisteredTable({ cabeceras, filas, clase }: RegisteredTableProps): JSX.Element {
+  const anchoCabecera = Math.max(...cabeceras.map(c => c.length)) * 12;
+
+  return (
+    <div className="mt-3 overflow-x-auto rounded-xl border border-white/10 bg-[#0D0E14]">
+      <table className={`min-w-full text-sm table-auto ${clase}`}>
+        <thead>
+          <tr className="border-b border-white/10">
+            {cabeceras.map((c, i) => (
+              <th
+                key={i}
+                className="border-r border-white/5 px-3 py-2 text-left bg-white/5 text-white font-medium whitespace-nowrap"
+                style={{ minWidth: i === 0 ? anchoCabecera + 'px' : undefined }}
+              >
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f, i) => (
+            <tr key={i} className={i % 2 === 0 ? 'bg-white/[0.01]' : ''}>
+              {f.map((c, j) => (
+                <td
+                  key={j}
+                  className="border-r border-white/5 px-3 py-2 text-[#B3B3B3] whitespace-nowrap"
+                >
+                  {c}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function AutoIllustration({ prompt }: { prompt: string }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -172,6 +334,30 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
   const isUser = message.role === 'user';
   const [reasoningOpen, setReasoningOpen] = useState(false);
 
+  // Detectar y extraer tipos especiales de prompts
+  const generarDiagramaMatch = !isUser && message.content ? message.content.match(GENERAR_DIAGRAMA_REGEX) : null;
+  const generarDiagramaPrompt = generarDiagramaMatch?.[1]?.trim() ?? null;
+
+  const generarFichaMatch = !isUser && message.content ? message.content.match(GENERAR_FICHA_REGEX) : null;
+  const generarFichaPrompt = generarFichaMatch?.[1]?.trim() ?? null;
+
+  const generarTablaMatch = !isUser && message.content ? message.content.match(GENERAR_TABLA_REGEX) : null;
+  const generarTablaPrompt = generarTablaMatch?.[1]?.trim() ?? null;
+
+  const generarImagenMatch = !isUser && message.content ? message.content.match(GENERAR_IMAGEN_REGEX) : null;
+  const generarImagenPrompt = generarImagenMatch?.[1]?.trim() ?? null;
+
+  const displayContent = !isUser &&
+    (generarDiagramaPrompt ||
+     generarFichaPrompt ||
+     generarTablaPrompt ||
+     generarImagenPrompt ||
+     message.imageUrl ||
+     message.videoUrl ||
+     message.audioUrl)
+    ? message.content.replace(GENERAR_DIAGRAMA_REGEX, '').replace(GENERAR_FICHA_REGEX, '').replace(GENERAR_TABLA_REGEX, '').replace(GENERAR_IMAGEN_REGEX, '').trim()
+    : message.content;
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -184,12 +370,6 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
         return message.content.match(SOCIAL_URL_REGEX)?.[0] ?? null;
       })()
     : null;
-
-  const generarImagenMatch = !isUser && message.content ? message.content.match(GENERAR_IMAGEN_REGEX) : null;
-  const generarImagenPrompt = generarImagenMatch?.[1]?.trim() ?? null;
-  const displayContent = !isUser && generarImagenPrompt
-    ? message.content.replace(GENERAR_IMAGEN_REGEX, '').trim()
-    : message.content;
 
   const userAvatar = settings.userAvatar;
 
@@ -376,6 +556,21 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
               ) : (
                 <p className="whitespace-pre-wrap">{displayContent}</p>
               ))}
+
+              {/* Auto diagrama (SVG dinámico) */}
+              {!isUser && !message.isStreaming && generarDiagramaPrompt && (
+                <DiagramFlow elements={JSON.parse(generarDiagramaPrompt)} />
+              )}
+
+              {/* Auto ficha educativa */}
+              {!isUser && !message.isStreaming && generarFichaPrompt && (
+                <FichaPatriotica {...JSON.parse(generarFichaPrompt)} />
+              )}
+
+              {/* Auto tabla */}
+              {!isUser && !message.isStreaming && generarTablaPrompt && (
+                <RegisteredTable {...JSON.parse(generarTablaPrompt)} />
+              )}
 
               {/* Auto illustration */}
               {!isUser && !message.isStreaming && generarImagenPrompt && (
