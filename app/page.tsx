@@ -32,19 +32,110 @@ function PanelContent() {
   return null;
 }
 
+type ProjectArtifact = {
+  id: string;
+  name: string;
+  type: 'document' | 'web';
+  content: string;
+  language: 'markdown' | 'html' | 'json' | 'typescript' | 'javascript' | 'css' | 'python' | 'jsx' | 'tsx' | 'py';
+  path: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function inferArtifactKind(content: string, pathHint?: string): { type: 'document' | 'web'; language: ProjectArtifact['language']; path: string } {
+  const normalized = (content ?? '').trim();
+  if (!normalized) {
+    return { type: 'document', language: 'markdown', path: pathHint ?? 'document.md' };
+  }
+
+  const lowerPath = (pathHint ?? '').toLowerCase();
+  const looksLikeWeb = /<!doctype html|<html|<body|<div|<section|<main|<script|document\.getElementById|window\./i.test(normalized) || lowerPath.includes('.html') || lowerPath.includes('.js');
+  const looksLikeMarkdown = /^(#\s|\n#\s|[-*]\s|\d+\.\s)/m.test(normalized) || /```markdown/i.test(normalized) || /\b(?:documento|resumen|proyecto|instrucciones)\b/i.test(normalized);
+
+  if (looksLikeWeb) {
+    return { type: 'web', language: 'html', path: pathHint ?? 'web-page.html' };
+  }
+
+  if (looksLikeMarkdown || lowerPath.endsWith('.md')) {
+    return { type: 'document', language: 'markdown', path: pathHint ?? 'document.md' };
+  }
+
+  if (/^\s*[\[{]/.test(normalized)) {
+    return { type: 'document', language: 'json', path: pathHint ?? 'data.json' };
+  }
+
+  if (/^(from\s+\w+\s+import|import\s+\w+|def\s+\w+\s*\(|class\s+\w+\s*\()/m.test(normalized)) {
+    return { type: 'document', language: 'python', path: pathHint ?? 'script.py' };
+  }
+
+  if (/export\s+(default\s+)?function|const\s+\w+\s*=\s*\(|return\s*\(\s*<|import\s+React/i.test(normalized)) {
+    return { type: 'document', language: 'typescript', path: pathHint ?? 'component.tsx' };
+  }
+
+  return { type: 'document', language: 'markdown', path: pathHint ?? 'document.md' };
+}
+
 export default function Home() {
   const [isMounted, setIsMounted] = useState(false);
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [hasOpenedTools, setHasOpenedTools] = useState(false);
+  const [projects, setProjects] = useState<ProjectArtifact[]>([]);
+  const [currentArtifact, setCurrentArtifact] = useState<ProjectArtifact | null>(null);
   const {
     initStore, sidebarOpen, setSidebarOpen, sidebarView, createNewChat, settings,
     setConversationSection, workspaceFiles, isWorkspaceOpen, setIsWorkspaceOpen,
+    setWorkspacePanelTab,
   } = useAppStore();
 
   const handleNewChat = useCallback(() => {
     setIsWorkspaceOpen(false);
     createNewChat();
   }, [createNewChat, setIsWorkspaceOpen]);
+
+  const handleToggleWorkspace = useCallback(() => {
+    setIsWorkspaceOpen(!isWorkspaceOpen);
+  }, [isWorkspaceOpen, setIsWorkspaceOpen]);
+
+  const handleProjectLoad = useCallback((project: { id: string; name: string; type: 'document' | 'web'; content: string; language: string; path: string; createdAt: number; updatedAt: number }) => {
+    const selectedProject: ProjectArtifact = {
+      ...project,
+      language: project.language === 'html' || project.language === 'markdown' || project.language === 'json' || project.language === 'typescript' || project.language === 'javascript' || project.language === 'css' || project.language === 'python' || project.language === 'jsx' || project.language === 'tsx' || project.language === 'py'
+        ? project.language
+        : 'markdown',
+    };
+    setCurrentArtifact(selectedProject);
+    setWorkspacePanelTab(selectedProject.type === 'web' ? 'preview' : 'preview');
+    setIsWorkspaceOpen(true);
+  }, [setIsWorkspaceOpen, setWorkspacePanelTab]);
+
+  useEffect(() => {
+    if (!workspaceFiles.length) return;
+    const latest = [...workspaceFiles].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    const artifactMeta = inferArtifactKind(latest.content, latest.path);
+    const nextProject: ProjectArtifact = {
+      id: latest.id,
+      name: latest.path.split('/').pop() ?? 'artifact',
+      type: artifactMeta.type,
+      content: latest.content,
+      language: artifactMeta.language,
+      path: artifactMeta.path,
+      createdAt: latest.createdAt,
+      updatedAt: latest.updatedAt,
+    };
+
+    setCurrentArtifact((previous) => {
+      if (!previous || previous.id !== nextProject.id || previous.content !== nextProject.content) {
+        return nextProject;
+      }
+      return previous;
+    });
+
+    setProjects((previous) => {
+      const filtered = previous.filter((project) => project.id !== nextProject.id);
+      return [nextProject, ...filtered].slice(0, 8);
+    });
+  }, [workspaceFiles]);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,7 +200,7 @@ export default function Home() {
   }, [handleKeyDown]);
 
   const isPanelView = ['memory', 'settings', 'help', 'shortcuts', 'gallery'].includes(sidebarView);
-  const shouldShowWorkspace = isWorkspaceOpen && workspaceFiles.length > 0;
+  const shouldShowWorkspace = isWorkspaceOpen;
 
   return (
     <>
@@ -142,7 +233,7 @@ export default function Home() {
                   borderRight: '1px solid rgba(124,58,237,0.12)',
                 }}
               >
-                <Sidebar />
+                <Sidebar projects={projects} onLoadProject={handleProjectLoad} />
               </div>
 
               {/* Desktop: inline panel overlay to the right of sidebar */}
@@ -199,7 +290,7 @@ export default function Home() {
                   borderRight: '1px solid rgba(124,58,237,0.15)',
                 }}
               >
-                <Sidebar mobileMode />
+                <Sidebar mobileMode projects={projects} onLoadProject={handleProjectLoad} />
               </motion.div>
             </>
           )}
@@ -266,6 +357,7 @@ export default function Home() {
             <Header
               isToolsOpen={isToolsOpen}
               onOpenTools={toggleTools}
+              onToggleWorkspace={handleToggleWorkspace}
             />
           </div>
 
@@ -298,7 +390,7 @@ export default function Home() {
                     className="hidden min-h-0 flex-col border-l border-white/10 bg-[#090b12]/90 backdrop-blur-xl transition-all duration-300 ease-in-out md:flex"
                     style={{ width: '50%' }}
                   >
-                    <WorkspaceCanvas />
+                    <WorkspaceCanvas currentArtifact={currentArtifact} onArtifactChange={setCurrentArtifact} />
                   </motion.aside>
                 )}
               </AnimatePresence>

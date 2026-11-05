@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, KeyboardEvent } from 'react';
+import { useState, useRef, useCallback, KeyboardEvent, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText,
@@ -17,7 +17,7 @@ export function InputBar() {
   const {
     isStreaming, stopStreaming, sendMessage,
     pendingFiles, removePendingFile, clearPendingFiles,
-    isListening, isSpeaking,
+    isListening, isSpeaking, composerDraft, setComposerDraft,
   } = useAppStore();
   const { startListening, stopListening } = useVoice();
   const { processFiles, isProcessing, processingName, error, clearError } = useFileUpload();
@@ -36,6 +36,20 @@ export function InputBar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!composerDraft) return;
+    setInput(composerDraft);
+    setComposerDraft('');
+    window.setTimeout(() => {
+      textareaRef.current?.focus();
+      if (textareaRef.current) {
+        const end = textareaRef.current.value.length;
+        textareaRef.current.selectionStart = end;
+        textareaRef.current.selectionEnd = end;
+      }
+    }, 0);
+  }, [composerDraft, setComposerDraft]);
 
   const handleSend = useCallback(async () => {
     const content = input.trim();

@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { Sun, Moon, Bell, User, Menu, Wrench } from 'lucide-react';
+import { Sun, Moon, Bell, User, Menu, Wrench, LayoutPanelLeft } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { ModelSelector } from './ModelSelector';
 import { cn } from '@/lib/utils';
@@ -10,13 +10,14 @@ import { OfflineStatus } from '@/components/offline/OfflineStatus';
 interface HeaderProps {
   onOpenTools: () => void;
   isToolsOpen: boolean;
+  onToggleWorkspace?: () => void;
 }
 
-export function Header({ onOpenTools, isToolsOpen }: HeaderProps) {
+export function Header({ onOpenTools, isToolsOpen, onToggleWorkspace }: HeaderProps) {
   const {
     settings, updateSettings,
     sidebarOpen, setSidebarOpen,
-    authUser,
+    authUser, isWorkspaceOpen,
   } = useAppStore();
   const isDark = settings.theme === 'dark';
 
@@ -61,6 +62,17 @@ export function Header({ onOpenTools, isToolsOpen }: HeaderProps) {
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         <OfflineStatus />
+
+        <button
+          type="button"
+          onClick={onToggleWorkspace}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 px-2 py-2 text-[10px] font-medium text-purple-100 transition-colors hover:bg-purple-500/20 sm:px-3"
+          aria-label={isWorkspaceOpen ? 'Ocultar Canvas' : 'Abrir Canvas'}
+          aria-pressed={isWorkspaceOpen}
+        >
+          <LayoutPanelLeft size={15} />
+          <span className="hidden sm:inline">{isWorkspaceOpen ? 'Ocultar Canvas' : 'Canvas / Workspace'}</span>
+        </button>
 
         <button
           type="button"

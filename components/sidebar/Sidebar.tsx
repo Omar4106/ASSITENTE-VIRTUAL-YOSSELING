@@ -123,7 +123,18 @@ function ChatItem({ chat, isActive, mobileMode = false }: { chat: Chat; isActive
   );
 }
 
-export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
+type SidebarProject = {
+  id: string;
+  name: string;
+  type: 'document' | 'web';
+  content: string;
+  language: string;
+  path: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export function Sidebar({ mobileMode = false, projects = [], onLoadProject }: { mobileMode?: boolean; projects?: SidebarProject[]; onLoadProject?: (project: SidebarProject) => void; }) {
   const {
     chats, activeChatId, sidebarView, setSidebarView,
     createNewChat, selectedModel,
@@ -354,6 +365,33 @@ export function Sidebar({ mobileMode = false }: { mobileMode?: boolean }) {
           ))}
         </TooltipProvider>
       </nav>
+
+      {projects.length > 0 && !collapsed && (
+        <div className="border-t border-white/[0.06] px-3 py-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-purple-300/80">Proyectos</p>
+            <span className="text-[9px] text-[#B3B3B3]">{projects.length}</span>
+          </div>
+          <div className="space-y-2">
+            {projects.slice(0, 5).map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                onClick={() => onLoadProject?.(project)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-white/5 bg-white/5 px-2 py-1.5 text-left transition-colors hover:border-purple-500/30 hover:bg-purple-500/10"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px] text-white">{project.name}</p>
+                  <p className="text-[9px] uppercase tracking-[0.12em] text-[#B3B3B3]">{project.type}</p>
+                </div>
+                <span className="rounded-full border border-purple-400/20 bg-purple-500/10 px-1.5 py-0.5 text-[8px] text-purple-200">
+                  {project.type === 'web' ? 'Web' : 'Doc'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* User / Model footer */}
       <AnimatePresence>

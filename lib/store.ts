@@ -78,6 +78,7 @@ interface AppState {
   workspaceFiles: WorkspaceFile[];
   activeWorkspaceFile: string | null;
   workspacePanelTab: WorkspacePanelTab;
+  composerDraft: string;
   isWorkspaceOpen: boolean;
   previewUrl: string | null;
   isPreviewLoading: boolean;
@@ -137,6 +138,7 @@ interface AppState {
   setWorkspaceFiles: (files: WorkspaceFile[]) => void;
   setActiveWorkspaceFile: (id: string | null) => void;
   setWorkspacePanelTab: (tab: WorkspacePanelTab) => void;
+  setComposerDraft: (draft: string) => void;
   setIsWorkspaceOpen: (open: boolean) => void;
 }
 
@@ -169,6 +171,7 @@ export const useAppStore = create<AppState>()(
     workspaceFiles: [],
     activeWorkspaceFile: null,
     workspacePanelTab: 'preview',
+    composerDraft: '',
     isWorkspaceOpen: false,
     previewUrl: null,
     isPreviewLoading: false,
@@ -322,43 +325,70 @@ export const useAppStore = create<AppState>()(
       try {
         const memCtx = buildMemoryContext(get().memory);
         const allMsgs = updatedMessages.map(m => ({ role: m.role as 'user' | 'assistant' | 'system', content: m.content }));
-        const { response } = await sendThroughYosseling({
-          messages: allMsgs,
-          model: state.selectedModel,
-          provider: state.selectedProvider,
-          autoRoute: state.selectedProvider === 'auto',
-          personality: get().settings.personality,
-          memoryContext: memCtx,
-          adaptiveProfile: get().settings.adaptiveProfile,
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const usedProvider = (response.headers.get('X-Provider') ?? state.selectedProvider) as Provider;
-        const usedModel = response.headers.get('X-Model') ?? state.selectedModel;
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error('No stream');
         const decoder = new TextDecoder();
-        let fullContent = '';
-        let buf = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const lines = buf.split('\n');
-          buf = lines.pop() ?? '';
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const data = line.slice(6).trim();
-            if (data === '[DONE]') continue;
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta?.content ?? '';
-              if (delta) fullContent += delta;
-              set(s => ({
-                chats: s.chats.map(c => c.id !== chatId ? c : { ...c, messages: c.messages.map(m => m.id === assistantMsg.id ? { ...m, content: fullContent } : m) }),
-              }));
-            } catch { }
+        const streamResponse = async (requestMessages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>) => {
+          const { response: liveResponse } = await sendThroughYosseling({
+            messages: requestMessages,
+            model: state.selectedModel,
+            provider: state.selectedProvider,
+            autoRoute: state.selectedProvider === 'auto',
+            personality: get().settings.personality,
+            memoryContext: memCtx,
+            adaptiveProfile: get().settings.adaptiveProfile,
+            signal: controller.signal,
+          });
+          if (!liveResponse.ok) throw new Error('HTTP ' + liveResponse.status);
+          const streamReader = liveResponse.body?.getReader();
+          if (!streamReader) throw new Error('No stream');
+          let text = '';
+          let buffer = '';
+          while (true) {
+            const { done, value } = await streamReader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const data = line.slice(6).trim();
+              if (data === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(data);
+                const delta = parsed.choices?.[0]?.delta?.content ?? '';
+                if (delta) text += delta;
+              } catch {
+                // Ignore JSON chunks that are not content.
+              }
+            }
           }
+          return {
+            text,
+            usedProvider: (liveResponse.headers.get('X-Provider') ?? state.selectedProvider) as Provider,
+            usedModel: liveResponse.headers.get('X-Model') ?? state.selectedModel,
+          };
+        };
+
+        let fullContent = '';
+        let resumeAttempts = 0;
+        let usedProvider = state.selectedProvider as Provider;
+        let usedModel = state.selectedModel;
+
+        const continuationMessage = (partial: string) => ({
+          role: 'user' as const,
+          content: `La respuesta anterior quedó cortada o incompleta. Continua desde el punto exacto de corte y finaliza la estructura correctamente. No repitas el contenido previo; añade solo la continuación final.\n\nContexto exacto:\n${partial.slice(-1500)}`,
+        });
+
+        while (resumeAttempts < 2) {
+          const requestMessages = resumeAttempts === 0 ? allMsgs : [...allMsgs, continuationMessage(fullContent || content)];
+          const { text, usedProvider: nextProvider, usedModel: nextModel } = await streamResponse(requestMessages);
+          fullContent = resumeAttempts === 0 ? text : `${fullContent}${text}`;
+          usedProvider = nextProvider;
+          usedModel = nextModel;
+          set(s => ({
+            chats: s.chats.map(c => c.id !== chatId ? c : { ...c, messages: c.messages.map(m => m.id === assistantMsg.id ? { ...m, content: resumeAttempts > 0 ? 'Completando documento...' : fullContent } : m) }),
+          }));
+          if (!isLikelyIncompleteArtifact(fullContent)) break;
+          resumeAttempts += 1;
         }
         const finalChat = get().chats.find(c => c.id === chatId);
         if (finalChat) {
@@ -512,6 +542,7 @@ export const useAppStore = create<AppState>()(
     setWorkspaceFiles: (files) => set({ workspaceFiles: files }),
     setActiveWorkspaceFile: (id) => set({ activeWorkspaceFile: id }),
     setWorkspacePanelTab: (tab) => set({ workspacePanelTab: tab }),
+    setComposerDraft: (draft) => set({ composerDraft: draft }),
   }))
 );
 
@@ -519,6 +550,16 @@ export const useActiveChat = () =>
   useAppStore(s => s.chats.find(c => c.id === s.activeChatId) ?? null);
 
 export const useAppStoreForSettings = useAppStore;
+
+function isLikelyIncompleteArtifact(content: string): boolean {
+  if (!content || content.length < 80) return false;
+  const trimmed = content.trim();
+  const opens = (trimmed.match(/\{/g) ?? []).length + (trimmed.match(/\[/g) ?? []).length + (trimmed.match(/\(/g) ?? []).length;
+  const closes = (trimmed.match(/\}/g) ?? []).length + (trimmed.match(/\]/g) ?? []).length + (trimmed.match(/\)/g) ?? []).length;
+  const hasToolJunk = /<\s*(?:tool_call|function)[\s\S]*$/i.test(trimmed) || /\b(?:\/|\\)(?:Users|home|workspace|testbed|tmp|var|opt|root|private|mnt)[^\s\n\r)\]]*$/i.test(trimmed);
+  const hasUnclosedMarkdown = /```(?:[a-zA-Z0-9_-]+)?\s*$/m.test(trimmed) || /^\s*#+\s+.*$/m.test(trimmed) && !/\n\s*$/m.test(trimmed);
+  return opens > closes || hasToolJunk || hasUnclosedMarkdown;
+}
 
 function inferArtifactMeta(content: string, pathHint?: string) {
   const normalized = content.trim();
