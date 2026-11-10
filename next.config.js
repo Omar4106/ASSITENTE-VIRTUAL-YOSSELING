@@ -34,13 +34,21 @@ console.log('  FAL_API_KEY:', process.env.FAL_API_KEY ? 'set' : 'NOT SET');
 console.log('  NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'set' : 'NOT SET');
 console.log('  NEXT_PUBLIC_SUPABASE_ANON_KEY:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'set' : 'NOT SET');
 
+let supabaseConnectSources = '';
+try {
+  const supabaseOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin;
+  const websocketOrigin = supabaseOrigin.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+  supabaseConnectSources = `${supabaseOrigin} ${websocketOrigin}`;
+} catch {}
+
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-XSS-Protection', value: '1; mode=block' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
-  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' },
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+  { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
   { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
   {
     key: 'Content-Security-Policy',
@@ -54,8 +62,8 @@ const securityHeaders = [
       "font-src 'self' data:",
       "img-src 'self' data: https: blob:",
       "media-src 'self' https://fal.media https://*.fal.media https://storage.googleapis.com data: blob:",
-      "connect-src 'self' https://api.groq.com https://api.openai.com https://generativelanguage.googleapis.com https://openrouter.ai https://api.cerebras.ai https://api-inference.huggingface.co https://router.huggingface.co https://fal.run https://*.fal.media blob: data:",
-      "frame-src 'none'",
+      `connect-src 'self' ${supabaseConnectSources} https://*.supabase.co wss://*.supabase.co http://localhost:11434 http://127.0.0.1:11434 https://api.groq.com https://api.openai.com https://generativelanguage.googleapis.com https://openrouter.ai https://api.cerebras.ai https://api-inference.huggingface.co https://router.huggingface.co https://fal.run https://*.fal.media blob: data:`,
+      "frame-src 'self' data: blob: https://*.webcontainer.io https://*.webcontainer-api.io",
       "frame-ancestors 'none'",
       "form-action 'self'",
       "base-uri 'self'",
@@ -70,6 +78,23 @@ const nextConfig = {
   experimental: { serverActions: true },
   eslint: { ignoreDuringBuilds: true },
   images: { unoptimized: true },
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        https: false,
+        http: false,
+        net: false,
+        tls: false,
+      };
+      config.module.rules.push({
+        test: /node_modules[\\/]pptxgenjs[\\/]/,
+        use: 'null-loader',
+      });
+    }
+    return config;
+  },
   async headers() {
     return [
       {

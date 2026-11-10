@@ -97,6 +97,18 @@ Las herramientas del compositor admiten transformar una imagen adjunta (o una fo
 
 La generación de audio admite una letra opcional: el modelo intentará cantarla cuando se proporcione; sin letra puede producir una pista instrumental. Los resultados se muestran con reproductores de audio/video en el historial del chat. Las llamadas a video consumen recursos del proveedor y pueden tardar más que una generación de imagen.
 
+### Workspace en la nube, GitHub y coedición
+
+- Los artefactos del Canvas se abren automáticamente solo cuando el prompt solicita crear o modificar explícitamente un documento, archivo, gráfica, código o app.
+- El Canvas ofrece vistas **Live Preview** y **Code / Edit**, un explorador jerárquico y pestañas por archivo. El chat se puede colapsar y **Full IDE Mode** expande el Workspace a pantalla completa.
+- Los archivos del VFS, las plantillas y los archivos importados se guardan automáticamente en IndexedDB local. Las respuestas con bloques de código para artefactos se muestran como un resumen en el chat mientras sus archivos se guardan en el Workspace.
+- **Compartir** guarda el artefacto en Supabase y crea una URL pública de solo lectura. **Coeditar** crea un enlace de invitación distinto, secreto y válido solo para usuarios autenticados; trata ese enlace como una contraseña.
+- Antes de usar estas funciones, aplica las migraciones de `supabase/migrations/` en el proyecto Supabase configurado. No se requiere una clave `service_role` en el navegador.
+- Para importar repositorios privados y hacer push, habilita GitHub como proveedor de identidad en Supabase y configura un OAuth App con el callback `https://<project-ref>.supabase.co/auth/v1/callback`. La app solicita el scope `repo`; cada push requiere que el usuario confirme un mensaje de commit. No se guardan tokens GitHub fuera de la sesión de autenticación.
+- La importación de GitHub limita el tamaño y cantidad de archivos y omite rutas de secretos conocidas. Los archivos importados se incluyen en el contexto de la IA con un límite para evitar exceder el contexto del modelo.
+- Los proyectos Node.js solo se instalan/ejecutan en WebContainers tras marcar el consentimiento por proyecto. Los scripts de dependencias son código de terceros y deben revisarse antes de ejecutarlos.
+- WebContainers requieren HTTPS en producción y aislamiento cross-origin (`COOP: same-origin`, `COEP: credentialless`). La configuración de Next.js habilita estos encabezados y permite los iframes aislados. Para el entorno local usa `http://localhost:3002`; el enlace público usa el host actual y será una URL local hasta que Vercel tenga un dominio configurado.
+
 ## 📱 Aplicación Android con Capacitor
 
 El proyecto Android usa Capacitor y abre la versión desplegada en Vercel dentro de una WebView nativa sin barra de navegador. La app requiere conexión para las funciones respaldadas por las rutas API de Next.js; el Service Worker puede conservar recursos visitados, pero no convierte las APIs remotas en funciones offline.
