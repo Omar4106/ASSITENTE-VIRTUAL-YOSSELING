@@ -754,6 +754,7 @@ function extractAndSyncWorkspaceFiles(content: string, userPrompt: string) {
 
   const codeBlockRegex = /```([a-zA-Z0-9_-]+)?(?:\s*(?:\/\/|#|--)\s*([^\n]+))?\n([\s\S]*?)```/g;
   const currentFiles = [...useAppStore.getState().workspaceFiles];
+  const generatedPaths = new Set<string>();
   let match;
   let modified = false;
   let latestArtifactId: string | null = null;
@@ -775,6 +776,7 @@ function extractAndSyncWorkspaceFiles(content: string, userPrompt: string) {
     const resolvedTab = rawLanguage === 'markdown' || rawLanguage === 'html' || inferred.tab === 'preview' ? 'preview' : 'code';
 
     const result = upsertWorkspaceArtifact(currentFiles, resolvedPath, codeContent, language, resolvedTab);
+    generatedPaths.add(resolvedPath);
     modified = modified || result.modified;
     nextTab = result.nextTab;
     latestArtifactId = currentFiles.find((file) => file.path === resolvedPath)?.id ?? latestArtifactId;
@@ -785,13 +787,25 @@ function extractAndSyncWorkspaceFiles(content: string, userPrompt: string) {
   if (!codeBlockRegex.test(content) && trimmed.length > 0) {
     const fallbackMeta = inferArtifactMeta(trimmed, 'document.md');
     const fallbackResult = upsertWorkspaceArtifact(currentFiles, fallbackMeta.path, trimmed, fallbackMeta.language, fallbackMeta.tab);
+    generatedPaths.add(fallbackMeta.path);
     modified = modified || fallbackResult.modified;
     nextTab = fallbackResult.nextTab;
     latestArtifactId = currentFiles.find((file) => file.path === fallbackMeta.path)?.id ?? latestArtifactId;
   }
 
-  if (modified) {
-    useAppStore.getState().setWorkspaceFiles(currentFiles);
+  if (generatedPaths.size > 0) {
+    const generatedFiles = currentFiles.filter((file) => generatedPaths.has(file.path));
+    const htmlEntry = generatedFiles
+      .filter((file) => /\.html?$/i.test(file.path))
+      .sort((a, b) => Number(/(^|\/)index\.html?$/i.test(b.path)) - Number(/(^|\/)index\.html?$/i.test(a.path)))[0];
+    const hasRunnableWebProject = generatedPaths.has('package.json')
+      && generatedFiles.some((file) => /\.(?:tsx?|jsx?)$/i.test(file.path));
+    if (htmlEntry || hasRunnableWebProject) {
+      nextTab = 'preview';
+      if (htmlEntry) latestArtifactId = htmlEntry.id;
+    }
+
+    if (modified) useAppStore.getState().setWorkspaceFiles(currentFiles);
     useAppStore.setState({
       rightPanelOpen: true,
       isWorkspaceOpen: true,

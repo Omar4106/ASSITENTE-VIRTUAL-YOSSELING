@@ -4,20 +4,16 @@ import dynamic from 'next/dynamic';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { ConversationSection } from '@/types';
-import { BriefcaseBusiness, Camera, HardDrive, Headphones, ListVideo } from 'lucide-react';
+import { BriefcaseBusiness, HardDrive, ListVideo } from 'lucide-react';
 
 const ToolLoading = () => <div className="p-6 text-zinc-400">Cargando herramienta...</div>;
 const JobRadar = memo(dynamic(() => import('./JobRadar').then((module) => module.JobRadar), { loading: ToolLoading }));
 const DeviceDoctor = memo(dynamic(() => import('./DeviceDoctor').then((module) => module.DeviceDoctor), { loading: ToolLoading }));
-const VoiceMode = memo(dynamic(() => import('./VoiceMode').then((module) => module.VoiceMode), { loading: ToolLoading }));
-const LiveVision = memo(dynamic(() => import('./LiveVision').then((module) => module.LiveVision), { loading: ToolLoading }));
 const BatchDownloadQueue = memo(dynamic(() => import('./BatchDownloadQueue').then((module) => module.BatchDownloadQueue), { loading: ToolLoading }));
 
 const TOOL_TABS = [
   { id: 'job', label: 'Empleo', icon: BriefcaseBusiness },
   { id: 'doctor', label: 'Dispositivos', icon: HardDrive },
-  { id: 'voice', label: 'Voz', icon: Headphones },
-  { id: 'vision', label: 'Visión', icon: Camera },
   { id: 'downloads', label: 'Descargas', icon: ListVideo },
 ] as const;
 
@@ -25,8 +21,6 @@ type ToolTab = (typeof TOOL_TABS)[number]['id'];
 
 function getSectionForTab(tab: ToolTab): ConversationSection {
   if (tab === 'job') return 'employment';
-  if (tab === 'vision') return 'vision';
-  if (tab === 'voice') return 'voice';
   return 'general';
 }
 
@@ -115,8 +109,6 @@ export function AdvancedTools({ isActive = true, setConversationSection }: Advan
         <div className="mx-auto max-w-4xl">
           {visitedTabs.has('job') && <div hidden={activeTab !== 'job'} className={activeTab === 'job' ? 'tool-panel-enter' : undefined}><JobRadar /></div>}
           {visitedTabs.has('doctor') && <div hidden={activeTab !== 'doctor'} className={activeTab === 'doctor' ? 'tool-panel-enter' : undefined}><DeviceDoctor /></div>}
-          {visitedTabs.has('voice') && <div hidden={activeTab !== 'voice'} className={activeTab === 'voice' ? 'tool-panel-enter' : undefined}><VoiceMode /></div>}
-          {visitedTabs.has('vision') && <div hidden={activeTab !== 'vision'} className={activeTab === 'vision' ? 'tool-panel-enter' : undefined}><LiveVision /></div>}
           {visitedTabs.has('downloads') && <div hidden={activeTab !== 'downloads'} className={activeTab === 'downloads' ? 'tool-panel-enter' : undefined}><BatchDownloadQueue /></div>}
         </div>
       </div>

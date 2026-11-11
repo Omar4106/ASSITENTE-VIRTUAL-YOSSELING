@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Headphones, LoaderCircle, Mic, MicOff, Radio, Volume2 } from 'lucide-react';
 import { useVoice } from '@/hooks/useVoice';
 import { useAppStore } from '@/lib/store';
 
@@ -60,12 +59,23 @@ function getVoiceNavigationTarget(text: string): VoiceNavigationTarget | null {
   return null;
 }
 
-export function VoiceMode() {
+interface VoiceModeProps {
+  onAskVision?: (question: string) => Promise<string | null>;
+  onStatusChange?: (status: VoiceModeStatus) => void;
+}
+
+export interface VoiceModeStatus {
+  active: boolean;
+  listening: boolean;
+  restarting: boolean;
+  transcript: string;
+  error: string;
+}
+
+export function VoiceMode({ onAskVision, onStatusChange }: VoiceModeProps = {}) {
   const { speak, stopSpeaking, voiceState } = useVoice();
   const { chats, activeChatId, isStreaming, sendMessage } = useAppStore();
-  const [isMounted, setIsMounted] = useState(false);
   const [active, setActive] = useState(false);
-  const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -83,12 +93,20 @@ export function VoiceMode() {
   const wasSpeakingRef = useRef(false);
   const isSpeakingRef = useRef(voiceState.isSpeaking);
   const isStreamingRef = useRef(isStreaming);
+  const onAskVisionRef = useRef(onAskVision);
   isSpeakingRef.current = voiceState.isSpeaking;
   isStreamingRef.current = isStreaming;
+  onAskVisionRef.current = onAskVision;
 
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
+    onStatusChange?.({
+      active,
+      listening,
+      restarting,
+      transcript,
+      error,
+    });
+  }, [active, error, listening, onStatusChange, restarting, transcript]);
 
   const startListening = useCallback(() => {
     if (typeof window === 'undefined' || !activeRef.current || !shouldListenRef.current || !recognitionRef.current || waitingForReplyRef.current) return;
@@ -160,16 +178,15 @@ export function VoiceMode() {
     setTranscript('');
   }, [stopSpeaking]);
 
-  const startConversation = () => {
+  const startConversation = useCallback(() => {
     if (typeof window === 'undefined') return;
+    if (activeRef.current) return;
     if (!('SpeechRecognition' in window) && !('webkitSpeechRecognition' in window)) {
-      setSupported(false);
       setError('Este navegador no ofrece reconocimiento de voz. Prueba con una versión reciente de Chrome o Edge.');
       return;
     }
     const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!Recognition) {
-      setSupported(false);
       setError('Este navegador no ofrece reconocimiento de voz. Prueba con una versión reciente de Chrome o Edge.');
       return;
     }
@@ -179,7 +196,6 @@ export function VoiceMode() {
     recognition.interimResults = true;
     recognition.lang = 'es-ES';
     recognition.onstart = () => {
-      restartAttemptsRef.current = 0;
       setListening(true);
       setRestarting(false);
       setError('');
@@ -196,6 +212,7 @@ export function VoiceMode() {
       setTranscript(finalText || interim.trim());
 
       if (finalText) {
+        restartAttemptsRef.current = 0;
         stopSpeaking();
         shouldListenRef.current = false;
         waitingForReplyRef.current = true;
@@ -203,15 +220,35 @@ export function VoiceMode() {
         pendingNavigationRef.current = getVoiceNavigationTarget(finalText);
         setListening(false);
         recognition.stop();
-        void sendMessage(finalText).catch((sendError: unknown) => {
-          pendingNavigationRef.current = null;
-          waitingForReplyRef.current = false;
-          setError(sendError instanceof Error ? sendError.message : 'No se pudo enviar la consulta por voz.');
-          if (activeRef.current) {
-            shouldListenRef.current = true;
-            startListening();
+        void (async () => {
+          try {
+            const visualReply = await onAskVisionRef.current?.(finalText);
+            if (visualReply !== null && visualReply !== undefined) {
+              waitingForReplyRef.current = false;
+              if (!activeRef.current) return;
+              shouldListenRef.current = false;
+              resumeAfterSpeechRef.current = true;
+              await speak(visualReply, undefined, true);
+              return;
+            }
+            await sendMessage(finalText);
+          } catch (sendError: unknown) {
+            pendingNavigationRef.current = null;
+            waitingForReplyRef.current = false;
+            if (sendError instanceof Error && sendError.name === 'AbortError') {
+              if (activeRef.current) {
+                shouldListenRef.current = true;
+                startListening();
+              }
+              return;
+            }
+            setError(sendError instanceof Error ? sendError.message : 'No se pudo enviar la consulta por voz.');
+            if (activeRef.current) {
+              shouldListenRef.current = true;
+              startListening();
+            }
           }
-        });
+        })();
       } else if (interim.trim().length > 2 && isSpeakingRef.current) {
         stopSpeaking();
         setTranscript(interim.trim());
@@ -261,7 +298,7 @@ export function VoiceMode() {
     setTranscript('');
     setError('');
     startListening();
-  };
+  }, [scheduleRestart, sendMessage, speak, startListening, stopSpeaking]);
 
   useEffect(() => {
     const wasStreaming = wasStreamingRef.current;
@@ -292,7 +329,11 @@ export function VoiceMode() {
       const target = pendingNavigationRef.current;
       pendingNavigationRef.current = null;
       resumeAfterSpeechRef.current = false;
-      window.dispatchEvent(new CustomEvent<VoiceNavigationTarget>('yosseling:navigate-tool', { detail: target }));
+      if (target === 'vision') {
+        window.dispatchEvent(new Event('yosseling:open-vision'));
+      } else {
+        window.dispatchEvent(new CustomEvent<VoiceNavigationTarget>('yosseling:navigate-tool', { detail: target }));
+      }
       return;
     }
 
@@ -309,6 +350,17 @@ export function VoiceMode() {
   }, [isStreaming, startListening, voiceState.isSpeaking]);
 
   useEffect(() => {
+    const handleVoiceStart = () => startConversation();
+    const handleVoiceStop = () => stopConversation();
+    window.addEventListener('yosseling:voice-start', handleVoiceStart);
+    window.addEventListener('yosseling:voice-stop', handleVoiceStop);
+    return () => {
+      window.removeEventListener('yosseling:voice-start', handleVoiceStart);
+      window.removeEventListener('yosseling:voice-stop', handleVoiceStop);
+    };
+  }, [startConversation, stopConversation]);
+
+  useEffect(() => {
     return () => {
       activeRef.current = false;
       shouldListenRef.current = false;
@@ -318,58 +370,5 @@ export function VoiceMode() {
     };
   }, [stopSpeaking]);
 
-  if (!isMounted) {
-    return <div className="p-6 text-zinc-400">Cargando herramienta...</div>;
-  }
-
-  return (
-    <section className="space-y-5">
-      <div>
-        <h2 className="flex items-center gap-2 text-base font-semibold text-white"><Headphones size={18} className="text-pink-300" /> Conversación por voz</h2>
-        <p className="mt-1 text-xs text-white/55">Habla con Yosseling sin tocar enviar. El reconocimiento de voz depende del navegador y los permisos del micrófono.</p>
-      </div>
-
-      <div className="flex flex-col items-center gap-4 rounded-2xl border border-pink-300/15 bg-pink-300/[0.04] px-5 py-8 text-center">
-        <div className={`flex h-20 w-20 items-center justify-center rounded-full border transition-all duration-300 ${listening ? 'border-pink-300/50 bg-pink-400/15 shadow-lg shadow-pink-950/30' : 'border-white/10 bg-white/[0.04]'}`}>
-          {isStreaming || (active && voiceState.currentWord === 'Generando voz...') ? (
-            <LoaderCircle size={30} className="animate-spin text-pink-200" />
-          ) : listening ? <Radio size={30} className="animate-pulse text-pink-200" /> : <Mic size={30} className="text-white/55" />}
-        </div>
-        <div>
-          <p className="text-sm font-medium text-white">
-            {isStreaming ? 'Yosseling está pensando…' : voiceState.isSpeaking ? 'Yosseling está hablando' : listening ? 'Micrófono activo · te escucho' : restarting ? 'Reactivando micrófono…' : active ? 'Modo manos libres activo' : 'Conversación pausada'}
-          </p>
-          <p className="mt-1 min-h-5 text-xs text-white/55">{transcript || (active ? 'Mantén esta pestaña abierta y permite el acceso al micrófono.' : 'Pulsa para iniciar y permite el acceso al micrófono.')}</p>
-        </div>
-        {active && (
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] ${listening ? 'bg-green-400/10 text-green-200' : 'bg-amber-300/10 text-amber-100'}`}>
-            {listening ? (
-              <span className="inline-flex h-3 items-center gap-0.5" aria-label="Ondas de audio: escuchando">
-                <span className="h-1 w-0.5 animate-pulse rounded-full bg-green-200" />
-                <span className="h-3 w-0.5 animate-pulse rounded-full bg-green-200 [animation-delay:120ms]" />
-                <span className="h-2 w-0.5 animate-pulse rounded-full bg-green-200 [animation-delay:240ms]" />
-                <span className="h-1.5 w-0.5 animate-pulse rounded-full bg-green-200 [animation-delay:360ms]" />
-              </span>
-            ) : <span className={`h-2 w-2 rounded-full ${restarting ? 'animate-pulse bg-amber-200' : 'bg-amber-200'}`} />}
-            {listening ? 'Escuchando' : restarting ? 'Reconectando' : 'En espera'}
-          </span>
-        )}
-        <button
-          type="button"
-          disabled={!supported}
-          onClick={active ? stopConversation : startConversation}
-          className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-pink-500/80 to-purple-500/80 px-5 py-2.5 text-sm font-medium text-white transition-all hover:brightness-110 disabled:opacity-50"
-        >
-          {active ? <MicOff size={16} /> : <Mic size={16} />}
-          {active ? 'Finalizar conversación' : 'Iniciar conversación'}
-        </button>
-        {voiceState.isSpeaking && (
-          <button type="button" onClick={stopSpeaking} className="inline-flex items-center gap-1.5 text-xs text-white/60 hover:text-white">
-            <Volume2 size={13} /> Interrumpir voz
-          </button>
-        )}
-        {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
-      </div>
-    </section>
-  );
+  return null;
 }

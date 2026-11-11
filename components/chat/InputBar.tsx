@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, KeyboardEvent, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Square, Mic, MicOff, Paperclip, Image as ImageIcon, FileText,
@@ -12,6 +13,36 @@ import type { ImageGenerationProvider } from '@/types';
 import { useVoice } from '@/hooks/useVoice';
 import { useFileUpload } from '@/hooks/useFileUpload';
 import { cn } from '@/lib/utils';
+import { VoiceMode, type VoiceModeStatus } from '@/components/tools/VoiceMode';
+
+const LiveVisionPanel = dynamic(
+  () => import('@/components/tools/LiveVision').then(module => module.LiveVision),
+  { ssr: false, loading: () => null }
+);
+
+type VisionQuestionHandler = (question: string) => Promise<string>;
+interface LiveVisionStatus {
+  cameraActive: boolean;
+  cameraStarting: boolean;
+  isAnalyzing: boolean;
+  error: string;
+  analysis: string;
+}
+
+const INITIAL_VOICE_STATUS: VoiceModeStatus = {
+  active: false,
+  listening: false,
+  restarting: false,
+  transcript: '',
+  error: '',
+};
+const INITIAL_VISION_STATUS: LiveVisionStatus = {
+  cameraActive: false,
+  cameraStarting: false,
+  isAnalyzing: false,
+  error: '',
+  analysis: '',
+};
 
 export function InputBar() {
   const {
@@ -31,11 +62,47 @@ export function InputBar() {
   const [imagePrompt, setImagePrompt] = useState('');
   const [audioLyrics, setAudioLyrics] = useState('');
   const [mediaError, setMediaError] = useState('');
+  const [isVisionActive, setIsVisionActive] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState(INITIAL_VOICE_STATUS);
+  const [visionStatus, setVisionStatus] = useState(INITIAL_VISION_STATUS);
   const [imageProvider, setImageProvider] = useState<Exclude<ImageGenerationProvider, 'auto'>>('fal');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const visionQuestionRef = useRef<VisionQuestionHandler | null>(null);
+
+  useEffect(() => {
+    const handleOpenVision = () => setIsVisionActive(true);
+    window.addEventListener('yosseling:open-vision', handleOpenVision);
+    return () => window.removeEventListener('yosseling:open-vision', handleOpenVision);
+  }, []);
+
+  const registerVisionQuestionHandler = useCallback((handler: VisionQuestionHandler | null) => {
+    visionQuestionRef.current = handler;
+  }, []);
+
+  const askAboutVision = useCallback(async (question: string) => {
+    if (!isVisionActive) return null;
+    const handler = visionQuestionRef.current;
+    if (!handler) throw new Error('La cámara sigue iniciándose. Espera un momento y vuelve a preguntar.');
+    return handler(question);
+  }, [isVisionActive]);
+
+  const toggleVoiceMode = () => {
+    window.dispatchEvent(new Event(voiceStatus.active ? 'yosseling:voice-stop' : 'yosseling:voice-start'));
+  };
+
+  const toggleVisionMode = () => {
+    if (isVisionActive) {
+      visionQuestionRef.current = null;
+      setIsVisionActive(false);
+      setVisionStatus(INITIAL_VISION_STATUS);
+    } else {
+      setVisionStatus(INITIAL_VISION_STATUS);
+      setIsVisionActive(true);
+    }
+  };
 
   useEffect(() => {
     if (!composerDraft) return;
@@ -219,14 +286,14 @@ export function InputBar() {
         />
 
         {/* Toolbar */}
-        <div className="flex min-w-0 items-center gap-1.5 px-2 pb-2 sm:gap-2 sm:px-3 sm:pb-3">
+        <div className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-1 px-2 pb-2 sm:gap-x-2 sm:px-3 sm:pb-3">
           <div className="flex min-w-0 flex-1 items-center gap-1">
             <label className="sr-only" htmlFor="chat-output-mode">Tipo de respuesta</label>
             <select
               id="chat-output-mode"
               value={outputMode}
               onChange={(event) => handleOutputModeSelect(event.target.value)}
-              className="h-9 max-w-[86px] shrink-0 rounded-lg border border-purple-300/15 bg-[#171523] px-1.5 text-[10px] text-white/80 outline-none focus:border-purple-300/40 sm:max-w-none sm:px-2 sm:text-xs"
+              className="h-9 max-w-[64px] shrink-0 rounded-lg border border-purple-300/15 bg-[#171523] px-1 text-[10px] text-white/80 outline-none focus:border-purple-300/40 sm:max-w-none sm:px-2 sm:text-xs"
             >
               <option value="text">Texto</option>
               <option value="image">Imagen</option>
@@ -261,13 +328,78 @@ export function InputBar() {
             </details>
           </div>
 
+          <div className="col-span-2 flex items-center justify-center gap-2 sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2">
+            <div className="relative h-14 w-14 shrink-0 sm:h-[58px] sm:w-[58px]">
+              <motion.div
+                aria-hidden="true"
+                className="absolute -inset-1 rounded-full opacity-70 blur-[5px] transition-opacity duration-300 hover:opacity-100"
+                style={{
+                  background: 'conic-gradient(from 0deg, #f472b6, #a78bfa, #67e8f9, #4ade80, #facc15, #fb7185, #f472b6)',
+                }}
+                animate={{ rotate: 360 }}
+                transition={{ duration: 12, ease: 'linear', repeat: Infinity }}
+              />
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.07 }}
+                whileTap={{ scale: 0.94 }}
+                onClick={toggleVoiceMode}
+                aria-label={voiceStatus.active ? 'Detener conversación por voz' : 'Iniciar conversación por voz'}
+                aria-pressed={voiceStatus.active}
+                title={voiceStatus.active ? 'Detener conversación por voz' : 'Hablar con Yosseling'}
+                className={`absolute inset-[3px] z-10 flex items-center justify-center overflow-hidden rounded-full border text-white transition-shadow duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0a15] ${
+                  voiceStatus.active
+                    ? 'border-cyan-100/70 shadow-[inset_0_0_18px_rgba(103,232,249,0.55),0_0_22px_rgba(192,132,252,0.65)]'
+                    : 'border-white/35 shadow-[inset_0_0_14px_rgba(167,139,250,0.35)] hover:shadow-[inset_0_0_18px_rgba(103,232,249,0.55),0_0_18px_rgba(192,132,252,0.5)]'
+                }`}
+              >
+                <motion.span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-1 rounded-full opacity-95"
+                  style={{
+                    background: 'radial-gradient(circle at center, rgba(11,10,21,0.12) 8%, transparent 58%), conic-gradient(from 30deg, #fb7185, #facc15, #4ade80, #22d3ee, #818cf8, #e879f9, #fb7185)',
+                    filter: 'blur(2px) saturate(1.45)',
+                  }}
+                  animate={{ rotate: -360, scale: [1, 1.04, 1] }}
+                  transition={{
+                    rotate: { duration: 7, ease: 'linear', repeat: Infinity },
+                    scale: { duration: 3.5, ease: 'easeInOut', repeat: Infinity },
+                  }}
+                />
+                <span className="absolute inset-1 rounded-full bg-[#11101b]/15 backdrop-blur-[1px]" />
+                {voiceStatus.active
+                  ? <MicOff size={18} className="relative z-10 drop-shadow-[0_0_5px_rgba(165,243,252,0.9)]" />
+                  : <Mic size={18} className="relative z-10 drop-shadow-[0_0_5px_rgba(165,243,252,0.9)]" />}
+              </motion.button>
+            </div>
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.07, y: -1 }}
+              whileTap={{ scale: 0.94 }}
+              onClick={toggleVisionMode}
+              aria-label={isVisionActive ? 'Desactivar visión en directo' : 'Activar visión en directo'}
+              aria-pressed={isVisionActive}
+              title={isVisionActive ? 'Desactivar visión en directo' : 'Activar visión en directo'}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-emerald-200 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0a15] ${
+                visionStatus.cameraActive
+                  ? 'border-emerald-200/80 bg-emerald-300/25 text-white shadow-[0_0_25px_rgba(16,185,129,0.55)]'
+                  : isVisionActive
+                    ? 'border-amber-200/60 bg-amber-300/10 text-amber-100'
+                    : 'border-emerald-300/40 bg-emerald-400/15 shadow-[0_0_18px_rgba(16,185,129,0.3),inset_0_0_10px_rgba(52,211,153,0.12)] hover:border-emerald-200/70 hover:bg-emerald-300/25 hover:text-white hover:shadow-[0_0_25px_rgba(16,185,129,0.55)]'
+              }`}
+            >
+              <Camera size={17} className={visionStatus.cameraActive ? 'animate-pulse' : ''} />
+            </motion.button>
+          </div>
+
           <motion.button
+            type="button"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={isStreaming ? stopStreaming : handleSend}
             disabled={!isStreaming && !input.trim() && pendingFiles.length === 0}
             className={cn(
-              'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-all',
+              'col-start-2 row-start-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all sm:h-10 sm:w-10',
               isStreaming
                 ? 'bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30'
                 : (input.trim() || pendingFiles.length > 0)
@@ -280,8 +412,28 @@ export function InputBar() {
         </div>
       </div>
 
-      <p className="text-center text-[10px] text-[#B3B3B3]/40 mt-2">
-        Yosseling puede cometer errores. Verifica la información importante.
+      <p
+        role={voiceStatus.error || visionStatus.error ? 'alert' : undefined}
+        aria-live="polite"
+        className={`mt-2 text-center text-[10px] ${
+          voiceStatus.error || visionStatus.error ? 'text-red-300' : voiceStatus.active || visionStatus.cameraActive ? 'text-emerald-200/75' : 'text-[#B3B3B3]/40'
+        }`}
+      >
+        {voiceStatus.error || visionStatus.error
+          ? voiceStatus.error || visionStatus.error
+          : voiceStatus.active
+            ? voiceStatus.listening
+              ? `Escuchando${visionStatus.cameraActive ? ' · visión activa' : ''}${voiceStatus.transcript ? ` · ${voiceStatus.transcript}` : ''}`
+              : isStreaming
+                ? 'Procesando tu consulta…'
+                : isSpeaking
+                  ? 'Yosseling está respondiendo en voz alta…'
+                  : voiceStatus.restarting
+                    ? 'Reconectando micrófono…'
+                    : 'Micrófono activo'
+            : visionStatus.cameraActive
+              ? 'Visión activa; solo se transmite un fotograma al preguntar por voz.'
+              : 'Yosseling puede cometer errores. Verifica la información importante.'}
       </p>
 
       {isMediaDialogOpen && (
@@ -414,6 +566,19 @@ export function InputBar() {
         capture="environment"
         onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ''; }}
       />
+      <VoiceMode
+        onAskVision={isVisionActive ? askAboutVision : undefined}
+        onStatusChange={setVoiceStatus}
+      />
+      <AnimatePresence>
+        {isVisionActive && (
+          <LiveVisionPanel
+            autoStart
+            onAskReady={registerVisionQuestionHandler}
+            onStatusChange={setVisionStatus}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -428,7 +593,7 @@ function ToolBtn({ icon, label, onClick, active }: {
       aria-label={label}
       onClick={onClick}
       className={cn(
-        'shrink-0 rounded-lg p-2 transition-colors text-sm',
+        'shrink-0 rounded-lg p-1.5 transition-colors text-sm sm:p-2',
         active ? 'bg-red-500/20 text-red-400' : 'text-[#B3B3B3] hover:text-white hover:bg-white/5'
       )}
     >

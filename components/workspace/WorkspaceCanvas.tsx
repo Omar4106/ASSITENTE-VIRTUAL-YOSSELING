@@ -467,6 +467,96 @@ function createConsoleDebugScript() {
   `;
 }
 
+function findWorkspaceAsset(reference: string, entryPath: string, files: WorkspaceFile[]) {
+  if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(reference)) return null;
+
+  let pathname = reference.split(/[?#]/, 1)[0].replace(/\\/g, '/');
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+
+  const segments = pathname.startsWith('/')
+    ? []
+    : entryPath.replace(/\\/g, '/').split('/').slice(0, -1);
+  for (const segment of pathname.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') segments.pop();
+    else segments.push(segment);
+  }
+
+  const normalizedPath = segments.join('/');
+  const normalizedFiles = files.map((file) => ({
+    file,
+    path: file.path.replace(/\\/g, '/').replace(/^\/+/, ''),
+  }));
+  const exactMatch = normalizedFiles.find((entry) => entry.path === normalizedPath);
+  if (exactMatch) return exactMatch.file;
+
+  const basename = normalizedPath.split('/').pop();
+  const basenameMatches = normalizedFiles.filter((entry) => entry.path.split('/').pop() === basename);
+  return basenameMatches.length === 1 ? basenameMatches[0].file : null;
+}
+
+function injectIntoHead(html: string, markup: string) {
+  if (/<\/head\s*>/i.test(html)) return html.replace(/<\/head\s*>/i, `${markup}</head>`);
+  if (/<head\b[^>]*>/i.test(html)) return html.replace(/<head\b[^>]*>/i, (head) => `${head}${markup}`);
+  if (/<html\b[^>]*>/i.test(html)) return html.replace(/<html\b[^>]*>/i, (tag) => `${tag}<head>${markup}</head>`);
+  return `<head>${markup}</head>${html}`;
+}
+
+function injectBeforeBodyEnd(html: string, markup: string) {
+  if (/<\/body\s*>/i.test(html)) return html.replace(/<\/body\s*>/i, `${markup}</body>`);
+  if (/<\/html\s*>/i.test(html)) return html.replace(/<\/html\s*>/i, `${markup}</html>`);
+  return `${html}${markup}`;
+}
+
+function inlineWorkspaceAssets(html: string, entryPath: string, files: WorkspaceFile[]) {
+  const usedStyles = new Set<string>();
+  const usedScripts = new Set<string>();
+  const hasScriptElement = /<script\b/i.test(html);
+  let preview = html.replace(/<link\b[^>]*>/gi, (tag) => {
+    if (!/\brel\s*=\s*(["'])?stylesheet\1?(?:\s|\/?>)/i.test(tag)) return tag;
+    const href = tag.match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2];
+    if (!href) return tag;
+    const stylesheet = findWorkspaceAsset(href, entryPath, files);
+    if (!stylesheet || !/\.css$/i.test(stylesheet.path)) return tag;
+
+    usedStyles.add(stylesheet.path);
+    const media = tag.match(/\bmedia\s*=\s*(["'])(.*?)\1/i)?.[2];
+    return `<style${media ? ` media="${escapeHtml(media)}"` : ''}>${stylesheet.content.replace(/<\/style/gi, '<\\/style')}</style>`;
+  });
+
+  preview = preview.replace(/<script\b([^>]*?)\bsrc\s*=\s*(["'])(.*?)\2([^>]*)>\s*<\/script\s*>/gi, (tag, before, _quote, src, after) => {
+    const script = findWorkspaceAsset(src, entryPath, files);
+    if (!script || !/\.(?:m?js|cjs)$/i.test(script.path)) return tag;
+    if (/\btype\s*=\s*(["'])module\1/i.test(`${before} ${after}`) && /\b(?:import|export)\b/.test(script.content)) return tag;
+
+    usedScripts.add(script.path);
+    const attributes = `${before} ${after}`.replace(/\s(?:src|integrity|crossorigin|async|defer)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '');
+    return `<script${attributes}>${script.content.replace(/<\/script/gi, '<\\/script')}</script>`;
+  });
+
+  const additionalStyles = files
+    .filter((file) => /\.css$/i.test(file.path) && !usedStyles.has(file.path))
+    .map((file) => `<style>${file.content.replace(/<\/style/gi, '<\\/style')}</style>`)
+    .join('\n');
+  if (additionalStyles) preview = injectIntoHead(preview, additionalStyles);
+
+  if (!usedScripts.size && !hasScriptElement) {
+    const fallbackScript = ['script', 'main', 'app']
+      .map((name) => files.find((file) => new RegExp(`(?:^|/)${name}\\.m?js$`, 'i').test(file.path.replace(/\\/g, '/'))))
+      .find(Boolean);
+    if (fallbackScript) {
+      const script = `<script>${fallbackScript.content.replace(/<\/script/gi, '<\\/script')}</script>`;
+      preview = injectBeforeBodyEnd(preview, script);
+    }
+  }
+
+  return preview;
+}
+
 function toMarkdownTable(rows: unknown[][]) {
   if (!rows.length) return '## Datos importados\n\nSin contenido.';
   const normalized = rows
@@ -891,7 +981,8 @@ export function WorkspaceCanvas({
           </body>
         </html>
       `;
-      return `${html}${createConsoleDebugScript()}`;
+      const withAssets = inlineWorkspaceAssets(html, liveArtifact.path, workspaceFiles);
+      return injectIntoHead(withAssets, createConsoleDebugScript());
     }
 
     if (lower.endsWith('.md') || /^(#\s|[-*]\s|\d+\.\s)/m.test(content) || content.includes('```')) {
@@ -905,7 +996,7 @@ export function WorkspaceCanvas({
         </body>
       </html>
     `;
-  }, [liveArtifact, previewStyle]);
+  }, [liveArtifact, previewStyle, workspaceFiles]);
 
   const updateActiveFile = (nextContent: string) => {
     if (!liveArtifact) return;
