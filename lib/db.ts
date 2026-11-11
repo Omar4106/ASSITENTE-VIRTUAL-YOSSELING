@@ -1,10 +1,10 @@
 'use client';
 
 import { openDB, type IDBPDatabase } from 'idb';
-import type { Chat, MemoryItem, AppSettings } from '@/types';
+import type { Chat, MemoryItem, AppSettings, WorkspaceFile } from '@/types';
 
 const DB_NAME = 'yosseling-db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
@@ -34,6 +34,9 @@ function getDB() {
           const store = transaction.objectStore('memory');
           if (!store.indexNames.contains('importance')) store.createIndex('importance', 'importance');
           if (!store.indexNames.contains('type')) store.createIndex('type', 'type');
+        }
+        if (oldVersion < 3 && !db.objectStoreNames.contains('workspace')) {
+          db.createObjectStore('workspace', { keyPath: 'id' });
         }
       },
     });
@@ -89,6 +92,21 @@ export async function deleteMemoryItem(id: string) {
 }
 export async function clearAllMemory() {
   (await getDB()).clear('memory');
+}
+
+// ── Workspace ──────────────────────────────────────────────
+export async function getWorkspaceFiles(): Promise<WorkspaceFile[]> {
+  try {
+    const record = await (await getDB()).get('workspace', 'files') as { id: string; files: WorkspaceFile[] } | undefined;
+    return record?.files ?? [];
+  } catch (error) {
+    console.error('[Workspace persistence] Failed to load workspace files:', error);
+    return [];
+  }
+}
+
+export async function saveWorkspaceFiles(files: WorkspaceFile[]) {
+  await (await getDB()).put('workspace', { id: 'files', files });
 }
 
 // ── Settings ───────────────────────────────────────────────

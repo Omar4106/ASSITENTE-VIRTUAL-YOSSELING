@@ -82,6 +82,8 @@ export default function Home() {
   const [hasOpenedTools, setHasOpenedTools] = useState(false);
   const [projects, setProjects] = useState<ProjectArtifact[]>([]);
   const [currentArtifact, setCurrentArtifact] = useState<ProjectArtifact | null>(null);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [isFullIdeMode, setIsFullIdeMode] = useState(false);
   const {
     initStore, sidebarOpen, setSidebarOpen, sidebarView, createNewChat, settings,
     setConversationSection, workspaceFiles, isWorkspaceOpen, setIsWorkspaceOpen,
@@ -95,7 +97,16 @@ export default function Home() {
 
   const handleToggleWorkspace = useCallback(() => {
     setIsWorkspaceOpen(!isWorkspaceOpen);
+    if (isWorkspaceOpen) {
+      setChatCollapsed(false);
+      setIsFullIdeMode(false);
+    }
   }, [isWorkspaceOpen, setIsWorkspaceOpen]);
+
+  const handleToggleFullIde = useCallback(() => {
+    if (!isFullIdeMode) setChatCollapsed(true);
+    setIsFullIdeMode(!isFullIdeMode);
+  }, [isFullIdeMode]);
 
   const handleProjectLoad = useCallback((project: { id: string; name: string; type: 'document' | 'web'; content: string; language: string; path: string; createdAt: number; updatedAt: number }) => {
     const selectedProject: ProjectArtifact = {
@@ -136,6 +147,12 @@ export default function Home() {
       return [nextProject, ...filtered].slice(0, 8);
     });
   }, [workspaceFiles]);
+
+  useEffect(() => {
+    if (isWorkspaceOpen) return;
+    setChatCollapsed(false);
+    setIsFullIdeMode(false);
+  }, [isWorkspaceOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -206,7 +223,10 @@ export default function Home() {
     <>
       <CinematicBackground />
 
-      <main className="relative flex h-dvh w-full overflow-hidden" style={{ zIndex: 1, background: 'transparent' }}>
+      <main
+        className={`relative flex h-dvh w-full overflow-hidden ${isFullIdeMode && shouldShowWorkspace ? 'fixed inset-0 z-[60]' : ''}`}
+        style={{ zIndex: isFullIdeMode && shouldShowWorkspace ? 60 : 1, background: 'transparent' }}
+      >
         {!isMounted ? (
           <div className="flex min-h-screen w-full items-center justify-center bg-[#0f0a1e] text-purple-300">
             Cargando Yosseling...
@@ -215,7 +235,7 @@ export default function Home() {
           <ClientOnly>
         {/* ── Desktop sidebar (inline) ─────────────────────────────── */}
         <AnimatePresence mode="wait">
-          {sidebarOpen && (
+          {sidebarOpen && !shouldShowWorkspace && (
             <motion.div
               key="desktop-sidebar"
               initial={{ x: -260, opacity: 0 }}
@@ -263,7 +283,7 @@ export default function Home() {
 
         {/* ── Mobile sidebar (slide-in overlay) ────────────────────── */}
         <AnimatePresence>
-          {sidebarOpen && (
+          {sidebarOpen && !shouldShowWorkspace && (
             <>
               {/* Backdrop */}
               <motion.div
@@ -354,17 +374,22 @@ export default function Home() {
               borderBottom: '1px solid rgba(124,58,237,0.1)',
             }}
           >
-            <Header
-              isToolsOpen={isToolsOpen}
-              onOpenTools={toggleTools}
-              onToggleWorkspace={handleToggleWorkspace}
-            />
+            {!shouldShowWorkspace && (
+              <Header
+                isToolsOpen={isToolsOpen}
+                onOpenTools={toggleTools}
+                onToggleWorkspace={handleToggleWorkspace}
+              />
+            )}
           </div>
 
-          <div className={`flex flex-1 min-h-0 overflow-hidden transition-all duration-300 ease-in-out ${isToolsOpen ? 'hidden' : ''}`}>
-            <div className={`flex flex-1 min-h-0 overflow-hidden transition-all duration-300 ease-in-out ${shouldShowWorkspace ? '' : 'w-full'}`}>
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            {/* Chat Area */}
+            {!(shouldShowWorkspace && chatCollapsed) && (
               <div
-                className={`relative h-full min-w-0 overflow-hidden transition-all duration-300 ease-in-out ${shouldShowWorkspace ? 'w-[50%]' : 'w-full'}`}
+                className={`relative h-full min-w-0 overflow-hidden transition-all duration-300 ease-in-out ${
+                  shouldShowWorkspace ? 'w-full md:w-[28%]' : 'w-full'
+                }`}
               >
                 <div
                   className="absolute inset-0"
@@ -378,23 +403,31 @@ export default function Home() {
                   <ChatArea />
                 </div>
               </div>
+            )}
 
-              <AnimatePresence>
-                {shouldShowWorkspace && (
-                  <motion.aside
-                    key="workspace-panel"
-                    initial={{ opacity: 0, x: 24, width: 0 }}
-                    animate={{ opacity: 1, x: 0, width: '50%' }}
-                    exit={{ opacity: 0, x: 24, width: 0 }}
-                    transition={{ duration: 0.3, ease: 'easeInOut' }}
-                    className="hidden min-h-0 flex-col border-l border-white/10 bg-[#090b12]/90 backdrop-blur-xl transition-all duration-300 ease-in-out md:flex"
-                    style={{ width: '50%' }}
-                  >
-                    <WorkspaceCanvas currentArtifact={currentArtifact} onArtifactChange={setCurrentArtifact} />
-                  </motion.aside>
-                )}
-              </AnimatePresence>
-            </div>
+            {/* Workspace Canvas */}
+            <AnimatePresence mode="wait">
+              {shouldShowWorkspace && (
+                <motion.aside
+                  key="workspace-panel"
+                  initial={{ opacity: 0, x: 24, width: 0 }}
+                  animate={{ opacity: 1, x: 0, width: chatCollapsed ? '100%' : '72%' }}
+                  exit={{ opacity: 0, x: 24, width: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeInOut' }}
+                  className="absolute inset-0 z-30 flex min-h-0 flex-col border-l border-white/10 bg-[#090b12]/90 backdrop-blur-xl transition-all duration-300 ease-in-out max-md:!w-full md:relative md:inset-auto md:z-auto"
+                  style={{ width: chatCollapsed ? '100%' : '72%' }}
+                >
+                  <WorkspaceCanvas
+                    currentArtifact={currentArtifact}
+                    onArtifactChange={setCurrentArtifact}
+                    isChatCollapsed={chatCollapsed}
+                    isFullIdeMode={isFullIdeMode}
+                    onToggleChat={() => setChatCollapsed((collapsed) => !collapsed)}
+                    onToggleFullIde={handleToggleFullIde}
+                  />
+                </motion.aside>
+              )}
+            </AnimatePresence>
           </div>
 
           {hasOpenedTools && (
@@ -406,7 +439,7 @@ export default function Home() {
             </div>
           )}
 
-          <MobileNav />
+          {!shouldShowWorkspace && <MobileNav />}
         </div>
           </ClientOnly>
         )}

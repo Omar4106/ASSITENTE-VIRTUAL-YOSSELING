@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import * as pdfjsLib from 'pdfjs-dist';
+import * as Y from 'yjs';
 import mammoth from 'mammoth';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -13,18 +14,30 @@ import {
   Code2,
   Copy,
   Download,
+  ExternalLink,
   FileText,
   FolderOpen,
-  Layers3,
+  Github,
   Maximize2,
   Minimize2,
   MonitorPlay,
+  PanelLeftClose,
+  PanelLeftOpen,
+  RefreshCw,
+  Share2,
   Sparkles,
   Terminal,
+  Users,
   Wand2,
+  X,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { FileExplorer } from '@/components/workspace/FileExplorer';
+import { CodeEditor } from '@/components/workspace/CodeEditor';
+import { WebContainerRunner } from '@/components/workspace/WebContainerRunner';
+import type { WorkspaceFile } from '@/types';
 
 const TAB_ITEMS = [
   { key: 'preview', label: 'Preview' },
@@ -95,6 +108,49 @@ type WorkspaceArtifact = {
   createdAt: number;
   updatedAt: number;
 };
+
+type CollaborationUpdate = { update_id: string; update_data: string };
+type CollaborationWorkspace = {
+  id: string;
+  initialState: string;
+  updates: CollaborationUpdate[];
+  user: { id: string; name: string };
+};
+
+function decodeBase64Update(encoded: string) {
+  const binary = atob(encoded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function encodeBase64Update(update: Uint8Array) {
+  let binary = '';
+  for (let offset = 0; offset < update.length; offset += 0x8000) {
+    const end = Math.min(offset + 0x8000, update.length);
+    for (let index = offset; index < end; index++) binary += String.fromCharCode(update[index]);
+  }
+  return btoa(binary);
+}
+
+function applyTextDiff(text: Y.Text, nextValue: string, origin?: unknown) {
+  const previous = text.toString();
+  if (previous === nextValue) return;
+
+  let prefix = 0;
+  while (prefix < previous.length && prefix < nextValue.length && previous[prefix] === nextValue[prefix]) prefix++;
+  let suffix = 0;
+  while (
+    suffix < previous.length - prefix
+    && suffix < nextValue.length - prefix
+    && previous[previous.length - suffix - 1] === nextValue[nextValue.length - suffix - 1]
+  ) suffix++;
+
+  text.doc?.transact(() => {
+    const deleteCount = previous.length - prefix - suffix;
+    if (deleteCount) text.delete(prefix, deleteCount);
+    const insertion = nextValue.slice(prefix, nextValue.length - suffix);
+    if (insertion) text.insert(prefix, insertion);
+  }, origin);
+}
 
 function escapeHtml(value: string) {
   return value
@@ -538,35 +594,59 @@ async function parseImportedFile(file: File): Promise<WorkspaceArtifact> {
   };
 }
 
-export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { currentArtifact?: WorkspaceArtifact | null; onArtifactChange?: (artifact: WorkspaceArtifact) => void; }) {
+export function WorkspaceCanvas({
+  currentArtifact,
+  onArtifactChange,
+  collaboration,
+  isChatCollapsed = false,
+  isFullIdeMode = false,
+  onToggleChat,
+  onToggleFullIde,
+  onCloseWorkspace,
+}: {
+  currentArtifact?: WorkspaceArtifact | null;
+  onArtifactChange?: (artifact: WorkspaceArtifact) => void;
+  collaboration?: CollaborationWorkspace;
+  isChatCollapsed?: boolean;
+  isFullIdeMode?: boolean;
+  onToggleChat?: () => void;
+  onToggleFullIde?: () => void;
+  onCloseWorkspace?: () => void;
+}) {
   const {
     workspaceFiles,
     activeWorkspaceFile,
     workspacePanelTab,
     setWorkspacePanelTab,
     setWorkspaceFiles,
-    setComposerDraft,
+    setActiveWorkspaceFile,
     setIsWorkspaceOpen,
   } = useAppStore();
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
-  const defaultArtifact = currentArtifact ?? (workspaceFiles[0] ? {
-    id: workspaceFiles[0].id,
-    name: workspaceFiles[0].path.split('/').pop() ?? 'artifact',
-    type: workspaceFiles[0].path.endsWith('.html') || workspaceFiles[0].content.includes('<html') ? 'web' : 'document',
-    content: workspaceFiles[0].content,
-    language: workspaceFiles[0].language,
-    path: workspaceFiles[0].path,
-    createdAt: workspaceFiles[0].createdAt,
-    updatedAt: workspaceFiles[0].updatedAt,
-  } : null);
+  const collaborationDocRef = useRef<Y.Doc | null>(null);
+  const selectedWorkspaceFile = workspaceFiles.find((file) => file.id === activeWorkspaceFile) ?? workspaceFiles[0];
+  const defaultArtifact = useMemo<WorkspaceArtifact | null>(() => currentArtifact ?? (selectedWorkspaceFile ? {
+    id: selectedWorkspaceFile.id,
+    name: selectedWorkspaceFile.path.split('/').pop() ?? 'artifact',
+    type: selectedWorkspaceFile.path.endsWith('.html') || selectedWorkspaceFile.content.includes('<html') ? 'web' : 'document',
+    content: selectedWorkspaceFile.content,
+    language: selectedWorkspaceFile.language,
+    path: selectedWorkspaceFile.path,
+    createdAt: selectedWorkspaceFile.createdAt,
+    updatedAt: selectedWorkspaceFile.updatedAt,
+  } : null), [currentArtifact, selectedWorkspaceFile]);
+  const collaborationId = collaboration?.id;
+  const collaborationInitialState = collaboration?.initialState;
+  const collaborationUpdates = collaboration?.updates;
+  const collaborationUserId = collaboration?.user.id;
+  const collaborationUserName = collaboration?.user.name;
 
   const [versions, setVersions] = useState<WorkspaceArtifact[]>([]);
   const [versionIndex, setVersionIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(true);
-  const [isMaximized, setIsMaximized] = useState(false);
   const [previewStyle, setPreviewStyle] = useState<'academic' | 'serif' | 'neon' | 'executive'>('academic');
   const [consoleLogs, setConsoleLogs] = useState<Array<{ id: number; level: 'log' | 'error'; message: string }>>([]);
   const [ghostMenu, setGhostMenu] = useState<{ visible: boolean; x: number; y: number; text: string }>({ visible: false, x: 0, y: 0, text: '' });
@@ -574,13 +654,18 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [githubDialogOpen, setGithubDialogOpen] = useState(false);
+  const [githubRepositoryUrl, setGithubRepositoryUrl] = useState('');
+  const [githubBusy, setGithubBusy] = useState(false);
+  const [githubStatus, setGithubStatus] = useState('');
+  const [githubRepo, setGithubRepo] = useState<{ owner: string; repository: string; branch: string; headSha: string } | null>(null);
+  const [collaborationStatus, setCollaborationStatus] = useState('');
+  const [collaboratorCount, setCollaboratorCount] = useState(1);
+  const [previewReloadKey, setPreviewReloadKey] = useState(0);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const pdfjsGlobal = (pdfjsLib as any);
-      const nextOptions = pdfjsGlobal.GlobalWorkerOptions ?? {};
-      nextOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      pdfjsGlobal.GlobalWorkerOptions = nextOptions;
+    if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
   }, []);
 
@@ -605,6 +690,22 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
   }, [defaultArtifact]);
 
   useEffect(() => {
+    if (!activeWorkspaceFile || !onArtifactChange) return;
+    const file = workspaceFiles.find((entry) => entry.id === activeWorkspaceFile);
+    if (!file || (currentArtifact?.id === file.id && currentArtifact.content === file.content)) return;
+    onArtifactChange({
+      id: file.id,
+      name: file.path.split('/').pop() ?? 'artifact',
+      type: file.path.endsWith('.html') || file.content.includes('<html') ? 'web' : 'document',
+      content: file.content,
+      language: file.language,
+      path: file.path,
+      createdAt: file.createdAt,
+      updatedAt: file.updatedAt,
+    });
+  }, [activeWorkspaceFile, currentArtifact?.content, currentArtifact?.id, onArtifactChange, workspaceFiles]);
+
+  useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.source !== 'yosseling-canvas-console') return;
       const nextLog: { id: number; level: 'log' | 'error'; message: string } = {
@@ -618,6 +719,154 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  useEffect(() => {
+    if (!collaborationId || !collaborationInitialState || !collaborationUpdates || !collaborationUserId || !collaborationUserName || !defaultArtifact) return;
+
+    let active = true;
+    let channel: ReturnType<ReturnType<typeof createSupabaseClient>['channel']> | null = null;
+    let persistTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingUpdates: Uint8Array[] = [];
+    const doc = new Y.Doc();
+    const text = doc.getText('content');
+    collaborationDocRef.current = doc;
+
+    try {
+      Y.applyUpdate(doc, decodeBase64Update(collaborationInitialState), 'initial');
+      collaborationUpdates.forEach((entry) => {
+        Y.applyUpdate(doc, decodeBase64Update(entry.update_data), 'initial');
+      });
+    } catch (error) {
+      console.error('[Workspace collaboration] Failed to load the Yjs state:', error);
+      setCollaborationStatus('No se pudo leer el estado compartido del documento.');
+      return () => {
+        doc.destroy();
+        collaborationDocRef.current = null;
+      };
+    }
+
+    if (text.length === 0 && defaultArtifact.content) {
+      text.insert(0, defaultArtifact.content, 'initial');
+    }
+
+    const persistPendingUpdates = async () => {
+      if (!pendingUpdates.length) return;
+      const mergedUpdate = Y.mergeUpdates(pendingUpdates);
+      pendingUpdates = [];
+      try {
+        const response = await fetch('/api/workspace/collaborate/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            collaborationId,
+            updateId: crypto.randomUUID(),
+            updateData: encodeBase64Update(mergedUpdate),
+          }),
+          keepalive: true,
+        });
+        if (!response.ok) {
+          const result = await response.json() as { error?: string };
+          throw new Error(result.error ?? 'No se pudo guardar el cambio remoto.');
+        }
+        if (active) setCollaborationStatus('Sincronizado');
+      } catch (error) {
+        console.error('[Workspace collaboration] Failed to persist a CRDT update:', error);
+        if (active) setCollaborationStatus(error instanceof Error ? error.message : 'Error al guardar el cambio colaborativo.');
+      }
+    };
+
+    const handleDocUpdate = (update: Uint8Array, origin: unknown) => {
+      if (origin === 'remote' || origin === 'initial') return;
+      const encodedUpdate = encodeBase64Update(update);
+      if (channel) {
+        void channel.send({
+          type: 'broadcast',
+          event: 'yjs-update',
+          payload: { update: encodedUpdate },
+        }).then((status: string) => {
+          if (status !== 'ok' && active) setCollaborationStatus(`Realtime: ${status}`);
+        }).catch((error: unknown) => {
+          console.error('[Workspace collaboration] Broadcast failed:', error);
+          if (active) setCollaborationStatus('No se pudo transmitir el cambio en tiempo real.');
+        });
+      }
+      pendingUpdates.push(update);
+      if (persistTimer) clearTimeout(persistTimer);
+      persistTimer = setTimeout(() => void persistPendingUpdates(), 500);
+    };
+
+    const handleTextChange = (_event: Y.YTextEvent, transaction: Y.Transaction) => {
+      if (transaction.origin !== 'remote') return;
+      const content = text.toString();
+      const updatedArtifact = { ...defaultArtifact, content, updatedAt: Date.now() };
+      onArtifactChange?.(updatedArtifact);
+      setWorkspaceFiles(useAppStore.getState().workspaceFiles.map((file) => file.path === defaultArtifact.path
+        ? { ...file, content, isModified: true, updatedAt: updatedArtifact.updatedAt }
+        : file));
+      setVersions((previous) => [...previous, updatedArtifact].slice(-8) as WorkspaceArtifact[]);
+      setVersionIndex((previous) => Math.min(previous + 1, 7));
+    };
+
+    doc.on('update', handleDocUpdate);
+    text.observe(handleTextChange);
+
+    const connect = async () => {
+      const supabase = createSupabaseClient();
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) throw new Error('Inicia sesión con Yosseling para coeditar este proyecto.');
+
+      channel = supabase.channel(`workspace:${collaborationId}`, {
+        config: { private: true, presence: { key: user.id } },
+      });
+      channel
+        .on('broadcast', { event: 'yjs-update' }, ({ payload }: { payload: { update?: unknown } }) => {
+          if (typeof payload?.update !== 'string') return;
+          try {
+            Y.applyUpdate(doc, decodeBase64Update(payload.update), 'remote');
+          } catch (error) {
+            console.error('[Workspace collaboration] Ignored invalid realtime update:', error);
+            if (active) setCollaborationStatus('Se recibió una actualización colaborativa inválida.');
+          }
+        })
+        .on('presence', { event: 'sync' }, () => {
+          const participants = Object.values(channel?.presenceState() ?? {}).flat();
+          if (active) setCollaboratorCount(Math.max(1, participants.length));
+        })
+        .subscribe(async (status: string) => {
+          if (!active) return;
+          setCollaborationStatus(status === 'SUBSCRIBED' ? 'Sincronizado' : `Realtime: ${status}`);
+          if (status === 'SUBSCRIBED') {
+            const presence = await channel?.track({ userId: user.id, name: collaborationUserName });
+            if (presence && presence !== 'ok') setCollaborationStatus(`No se pudo publicar la presencia: ${presence}`);
+          }
+        });
+    };
+
+    void connect().catch((error: unknown) => {
+      console.error('[Workspace collaboration] Connection failed:', error);
+      if (active) setCollaborationStatus(error instanceof Error ? error.message : 'No se pudo conectar al canal colaborativo.');
+    });
+
+    return () => {
+      active = false;
+      if (persistTimer) clearTimeout(persistTimer);
+      if (pendingUpdates.length) void persistPendingUpdates();
+      text.unobserve(handleTextChange);
+      doc.off('update', handleDocUpdate);
+      if (channel) void createSupabaseClient().removeChannel(channel);
+      doc.destroy();
+      if (collaborationDocRef.current === doc) collaborationDocRef.current = null;
+    };
+  }, [
+    collaborationId,
+    collaborationInitialState,
+    collaborationUpdates,
+    collaborationUserId,
+    collaborationUserName,
+    defaultArtifact,
+    onArtifactChange,
+    setWorkspaceFiles,
+  ]);
 
   const liveArtifact = useMemo(() => {
     if (!defaultArtifact) return null;
@@ -658,55 +907,260 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
     `;
   }, [liveArtifact, previewStyle]);
 
-  const savedProjects = useMemo(() => {
-    const normalizedProjects: WorkspaceArtifact[] = [];
-
-    if (defaultArtifact) normalizedProjects.push(defaultArtifact);
-    workspaceFiles.forEach((file) => {
-      const project: WorkspaceArtifact = {
-        id: file.id,
-        name: file.path.split('/').pop() ?? 'artifact',
-        type: file.path.endsWith('.html') || file.content.includes('<html') ? 'web' : 'document',
-        content: file.content,
-        language: file.language,
-        path: file.path,
-        createdAt: file.createdAt,
-        updatedAt: file.updatedAt,
-      };
-      if (!normalizedProjects.some((item) => item.id === project.id)) {
-        normalizedProjects.push(project);
-      }
-    });
-
-    const documentItems = normalizedProjects.filter((project) => project.type === 'document' && project.language === 'markdown');
-    const webItems = normalizedProjects.filter((project) => project.type === 'web');
-    const codeItems = normalizedProjects.filter((project) => project.type === 'document' && project.language !== 'markdown');
-
-    return [
-      { category: 'Documentos', items: documentItems },
-      { category: 'Apps Web', items: webItems },
-      { category: 'Código', items: codeItems },
-    ];
-  }, [defaultArtifact, workspaceFiles]);
-
   const updateActiveFile = (nextContent: string) => {
     if (!liveArtifact) return;
     const updatedArtifact = { ...liveArtifact, content: nextContent, updatedAt: Date.now() };
+    const collaborativeText = collaborationDocRef.current?.getText('content');
+    if (collaborativeText) applyTextDiff(collaborativeText, nextContent);
     if (onArtifactChange) onArtifactChange(updatedArtifact);
+    const currentFiles = useAppStore.getState().workspaceFiles;
+    setWorkspaceFiles(currentFiles.map((file) => file.path === liveArtifact.path
+      ? { ...file, content: nextContent, isModified: true, updatedAt: updatedArtifact.updatedAt }
+      : file));
 
-    setVersions((previous) => {
-      const next: WorkspaceArtifact[] = [...previous, updatedArtifact].slice(-8) as WorkspaceArtifact[];
-      return next;
-    });
-    setVersionIndex((previous) => Math.max(0, previous));
+    const nextVersions: WorkspaceArtifact[] = [...versions, updatedArtifact].slice(-8) as WorkspaceArtifact[];
+    setVersions(nextVersions);
+    setVersionIndex(nextVersions.length - 1);
   };
 
   const applyImportedArtifact = (artifact: WorkspaceArtifact) => {
+    const language = artifact.language;
+    const fileType: WorkspaceFile['type'] = language === 'css' ? 'style'
+      : language === 'json' ? 'config'
+        : language === 'tsx' || language === 'jsx' ? 'component'
+          : language === 'html' ? 'page'
+            : 'other';
+    const importedFile: WorkspaceFile = {
+      id: artifact.id,
+      path: artifact.path,
+      content: artifact.content,
+      language,
+      type: fileType,
+      isModified: true,
+      createdAt: artifact.createdAt,
+      updatedAt: artifact.updatedAt,
+    };
+    const currentFiles = useAppStore.getState().workspaceFiles;
+    setWorkspaceFiles([
+      ...currentFiles.filter((file) => file.path !== artifact.path && file.id !== artifact.id),
+      importedFile,
+    ]);
+    setActiveWorkspaceFile(importedFile.id);
     if (onArtifactChange) onArtifactChange(artifact);
     setVersions([artifact]);
     setVersionIndex(0);
     setWorkspacePanelTab('preview');
     setIsWorkspaceOpen(true);
+  };
+
+  const handleGithubImport = async () => {
+    setGithubBusy(true);
+    setGithubStatus('');
+    try {
+      const supabase = createSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/github/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: githubRepositoryUrl, token: session?.provider_token }),
+      });
+      const result = await response.json() as {
+        error?: string;
+        repository?: string;
+        branch?: string;
+        headSha?: string;
+        manifests?: string[];
+        files?: Array<{ path: string; content: string; sha: string }>;
+      };
+      if (!response.ok || !result.files?.length || !result.repository || !result.branch || !result.headSha) {
+        throw new Error(result.error ?? 'GitHub no devolvió un árbol de archivos válido.');
+      }
+
+      const now = Date.now();
+      const importedFiles = result.files.map((file) => {
+        const extension = file.path.split('.').pop()?.toLowerCase() ?? '';
+        const language: WorkspaceArtifact['language'] =
+          extension === 'html' ? 'html'
+            : extension === 'json' ? 'json'
+              : extension === 'css' ? 'css'
+                : extension === 'md' ? 'markdown'
+                  : extension === 'py' ? 'python'
+                    : extension === 'jsx' ? 'jsx'
+                      : extension === 'tsx' ? 'tsx'
+                        : extension === 'js' || extension === 'mjs' ? 'javascript'
+                          : 'typescript';
+        return {
+          id: `github-${result.repository}-${file.path}`,
+          path: file.path,
+          content: file.content,
+          language,
+          type: extension === 'css' ? 'style' as const
+            : extension === 'json' ? 'config' as const
+              : extension === 'html' || /(^|\/)(page|index)\.(tsx?|jsx?)$/i.test(file.path) ? 'page' as const
+                : /(^|\/)(component|components)(\/|$)/i.test(file.path) ? 'component' as const
+                  : 'other' as const,
+          isModified: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+      });
+
+      const preferredFile = importedFiles.find((file) => /(^|\/)index\.html$/i.test(file.path))
+        ?? importedFiles.find((file) => /(^|\/)(App|page)\.(tsx|jsx|html)$/i.test(file.path))
+        ?? importedFiles.find((file) => /^README\.md$/i.test(file.path))
+        ?? importedFiles[0];
+      if (!preferredFile) throw new Error('El repositorio no contiene archivos compatibles.');
+      setWorkspaceFiles([preferredFile, ...importedFiles.filter((file) => file.id !== preferredFile.id)]);
+
+      const [owner, repository] = result.repository.split('/');
+      setGithubRepo({ owner, repository, branch: result.branch, headSha: result.headSha });
+      const isWeb = preferredFile.language === 'html';
+      applyImportedArtifact({
+        id: preferredFile.id,
+        name: result.repository,
+        type: isWeb ? 'web' : 'document',
+        content: preferredFile.content,
+        language: preferredFile.language,
+        path: preferredFile.path,
+        createdAt: now,
+        updatedAt: now,
+      });
+      setActiveWorkspaceFile(preferredFile.id);
+      setGithubStatus(`Importados ${importedFiles.length} archivos de ${result.repository}. Las dependencias no se ejecutan ni instalan automáticamente.`);
+      if (result.manifests?.length) {
+        setGithubStatus((status) => `${status} Manifiestos detectados: ${result.manifests?.join(', ')}.`);
+      }
+      setGithubDialogOpen(false);
+    } catch (error) {
+      console.error('[Workspace] GitHub import failed:', error);
+      setGithubStatus(error instanceof Error ? error.message : 'No se pudo importar el repositorio.');
+    } finally {
+      setGithubBusy(false);
+    }
+  };
+
+  const handleConnectGithub = async () => {
+    try {
+      const supabase = createSupabaseClient();
+      const { data, error } = await supabase.auth.linkIdentity({
+        provider: 'github',
+        options: {
+          scopes: 'repo',
+          redirectTo: `${window.location.origin}/auth/callback?next=/`,
+        },
+      });
+      if (error) throw error;
+      if (!data.url) throw new Error('Supabase no devolvió una URL de autorización de GitHub.');
+      window.location.assign(data.url);
+    } catch (error) {
+      console.error('[Workspace] GitHub OAuth failed:', error);
+      setGithubStatus(error instanceof Error ? error.message : 'No se pudo conectar GitHub. Verifica que el proveedor esté habilitado en Supabase.');
+    }
+  };
+
+  const handleGithubCommit = async () => {
+    if (!githubRepo) return;
+    const message = window.prompt('Confirma el mensaje del commit:', `Update ${liveArtifact?.path ?? 'workspace'} with Yosseling`);
+    if (!message?.trim()) return;
+
+    setGithubBusy(true);
+    setGithubStatus('');
+    try {
+      const { data: { session } } = await createSupabaseClient().auth.getSession();
+      if (!session?.provider_token) {
+        setGithubStatus('GitHub no está conectado. Conecta tu identidad de GitHub y vuelve a importar el repositorio.');
+        return;
+      }
+      const files = workspaceFiles.map(({ path, content }) => ({ path, content }));
+      const response = await fetch('/api/github/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...githubRepo, token: session.provider_token, message, files }),
+      });
+      const result = await response.json() as { error?: string; sha?: string; url?: string };
+      if (!response.ok || !result.sha) throw new Error(result.error ?? 'No se pudo publicar el commit.');
+      setGithubRepo({ ...githubRepo, headSha: result.sha });
+      setGithubStatus(result.url ? `Push completado: ${result.url}` : `Push completado (${result.sha.slice(0, 7)}).`);
+    } catch (error) {
+      console.error('[Workspace] GitHub push failed:', error);
+      setGithubStatus(error instanceof Error ? error.message : 'No se pudo hacer el push.');
+    } finally {
+      setGithubBusy(false);
+    }
+  };
+
+  const handleShareArtifact = async () => {
+    if (!liveArtifact) return;
+    setGithubBusy(true);
+    setGithubStatus('');
+    try {
+      const response = await fetch('/api/workspace/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifactId: liveArtifact.id,
+          name: liveArtifact.name,
+          type: liveArtifact.type,
+          path: liveArtifact.path,
+          content: liveArtifact.content,
+        }),
+      });
+      const result = await response.json() as { error?: string; publicId?: string };
+      if (!response.ok || !result.publicId) throw new Error(result.error ?? 'No se pudo publicar el artefacto.');
+      const publicUrl = `${window.location.origin}/preview/${result.publicId}`;
+      try {
+        await navigator.clipboard.writeText(publicUrl);
+        setGithubStatus('Enlace público copiado al portapapeles.');
+      } catch {
+        setGithubStatus(`Enlace público: ${publicUrl}`);
+      }
+    } catch (error) {
+      console.error('[Workspace] Publishing artifact failed:', error);
+      setGithubStatus(error instanceof Error ? error.message : 'No se pudo generar el enlace público.');
+    } finally {
+      setGithubBusy(false);
+    }
+  };
+
+  const handleCreateCollaborationInvite = async () => {
+    if (!liveArtifact) return;
+    setGithubBusy(true);
+    setCollaborationStatus('');
+    try {
+      const doc = new Y.Doc();
+      doc.getText('content').insert(0, liveArtifact.content);
+      const documentState = encodeBase64Update(Y.encodeStateAsUpdate(doc));
+      doc.destroy();
+
+      const response = await fetch('/api/workspace/collaborate/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifactId: liveArtifact.id,
+          name: liveArtifact.name,
+          type: liveArtifact.type,
+          path: liveArtifact.path,
+          content: liveArtifact.content,
+          documentState,
+        }),
+      });
+      const result = await response.json() as { error?: string; collaborationInviteId?: string };
+      if (!response.ok || !result.collaborationInviteId) {
+        throw new Error(result.error ?? 'No se pudo crear el enlace de coedición.');
+      }
+      const inviteUrl = `${window.location.origin}/collab/${result.collaborationInviteId}`;
+      try {
+        await navigator.clipboard.writeText(inviteUrl);
+        setCollaborationStatus('Enlace secreto copiado. Solo usuarios autenticados podrán unirse.');
+      } catch {
+        setCollaborationStatus(`Enlace secreto (compártelo con cuidado): ${inviteUrl}`);
+      }
+    } catch (error) {
+      console.error('[Workspace collaboration] Could not create invite:', error);
+      setCollaborationStatus(error instanceof Error ? error.message : 'No se pudo crear la invitación.');
+    } finally {
+      setGithubBusy(false);
+    }
   };
 
   const handleImportFiles = async (files: FileList | File[] | null) => {
@@ -718,18 +1172,9 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
     try {
       const imported = await parseImportedFile(file);
       applyImportedArtifact(imported);
-    } catch {
-      const fallback: WorkspaceArtifact = {
-        id: `import-fallback-${Date.now()}`,
-        name: file.name || 'archivo-importado',
-        type: 'document',
-        content: `# ${file.name || 'Archivo importado'}\n\nNo se pudo analizar automáticamente.` ,
-        language: 'markdown',
-        path: file.name || 'archivo-importado',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      applyImportedArtifact(fallback);
+    } catch (error) {
+      console.error('[Workspace import] Could not parse the selected file:', error);
+      setGithubStatus(error instanceof Error ? `No se pudo importar ${file.name}: ${error.message}` : `No se pudo importar ${file.name}.`);
     } finally {
       setIsImporting(false);
       setIsDraggingFile(false);
@@ -737,12 +1182,6 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
         importInputRef.current.value = '';
       }
     }
-  };
-
-  const handleEditProjectWithAI = (project: WorkspaceArtifact) => {
-    const context = `Contexto del proyecto: ${project.name}\nRuta: ${project.path}\nTipo: ${project.type}\n\nContenido:\n${project.content}`;
-    setComposerDraft(`Edita este proyecto y mejora su estructura, claridad y calidad. Contexto del artefacto:\n\n${context}`);
-    setIsWorkspaceOpen(false);
   };
 
   const handleOpenImageModal = () => {
@@ -802,11 +1241,7 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
       updatedAt: Date.now(),
     };
 
-    if (onArtifactChange) onArtifactChange(artifact);
-    setVersions([artifact]);
-    setVersionIndex(0);
-    setWorkspacePanelTab('preview');
-    setIsWorkspaceOpen(true);
+    applyImportedArtifact(artifact);
   };
 
   const handleCopy = async () => {
@@ -955,6 +1390,64 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
     downloadBlob(blob, (liveArtifact.path.split('/').pop() ?? 'yosseling-artifact') + '.html');
   };
 
+  const handleExportPptx = async () => {
+    if (!liveArtifact) return;
+    try {
+      const PptxGenJSModule = await import('pptxgenjs');
+      const PptxGenJS = PptxGenJSModule.default || PptxGenJSModule;
+      const pptx = new PptxGenJS();
+      pptx.layout = 'LAYOUT_16x9';
+      pptx.defineSlideMaster({
+        title: 'MASTER_SLIDE',
+        background: { color: '090b12' },
+        objects: [
+          { rect: { x: 0, y: 0, w: '100%', h: '100%', fill: { color: '090b12' } } },
+          { rect: { x: 0.5, y: 0.4, w: 0.15, h: 0.6, fill: { color: '8b5cf6' } } },
+          { text: { text: 'Yosseling Studio', options: { x: 0.8, y: 0.45, fontSize: 12, color: 'a78bfa', bold: true } } }
+        ]
+      });
+
+      const sections = liveArtifact.content.split(/(?=^#\s+)/m).filter(Boolean);
+      if (sections.length === 0) sections.push(liveArtifact.content);
+
+      // Slide de título
+      const titleSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+      titleSlide.addText(liveArtifact.name || 'Presentación Yosseling', {
+        x: 1.0, y: 2.2, w: '80%', h: 1.5,
+        fontSize: 36, color: 'FFFFFF', bold: true, align: 'left'
+      });
+      titleSlide.addText('Generado automáticamente con IA', {
+        x: 1.0, y: 3.8, w: '80%', h: 0.8,
+        fontSize: 16, color: 'd4d4d8', align: 'left'
+      });
+
+      // Slides de contenido
+      sections.forEach((sec) => {
+        const lines = sec.split('\n').filter(Boolean);
+        const heading = lines.find(l => l.startsWith('#'))?.replace(/^#+\s*/, '') || 'Sección';
+        const bodyLines = lines.filter(l => !l.startsWith('#')).map(l => l.replace(/^[-*]\s*/, ''));
+
+        const slide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+        slide.addText(heading, {
+          x: 1.0, y: 0.8, w: '80%', h: 0.8,
+          fontSize: 24, color: 'FFFFFF', bold: true
+        });
+
+        if (bodyLines.length > 0) {
+          slide.addText(bodyLines.join('\n'), {
+            x: 1.0, y: 1.8, w: '80%', h: 4.5,
+            fontSize: 14, color: 'e2e8f0', bullet: true, lineSpacing: 22
+          });
+        }
+      });
+
+      const fileName = (liveArtifact.path.split('/').pop() ?? 'presentacion').replace(/\.[^/.]+$/, '') + '.pptx';
+      await pptx.writeFile({ fileName });
+    } catch (err) {
+      console.error('[Export PPTX] Error:', err);
+    }
+  };
+
   const handleSelection = () => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -965,12 +1458,13 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
     }
 
     const rect = textarea.getBoundingClientRect();
+    const containerRect = textarea.parentElement?.getBoundingClientRect() ?? rect;
     const caretOffset = textarea.value.slice(0, textarea.selectionStart).split('\n').length;
-    const top = 16 + (caretOffset - 1) * 22;
+    const top = rect.top - containerRect.top + (caretOffset - 1) * 22 - textarea.scrollTop;
     setGhostMenu({
       visible: true,
-      x: rect.left + 120,
-      y: rect.top + top,
+      x: Math.max(8, Math.min(containerRect.width - 210, rect.left - containerRect.left + 120)),
+      y: Math.max(8, Math.min(containerRect.height - 44, top)),
       text: selection,
     });
   };
@@ -990,34 +1484,116 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
 
     const nextValue = `${before}${finalText}${after}`;
     textarea.value = nextValue;
-    if (liveArtifact && onArtifactChange) {
-      onArtifactChange({ ...liveArtifact, content: nextValue, updatedAt: Date.now() });
-    }
+    updateActiveFile(nextValue);
     setGhostMenu({ visible: false, x: 0, y: 0, text: '' });
   };
 
   if (!liveArtifact) {
     return (
       <div className="flex h-full flex-col bg-[#090b12] text-slate-300">
-        <div className="flex items-center justify-between border-b border-white/5 bg-white/5 px-4 py-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-purple-300">Workspace</span>
-          <div className="flex items-center gap-2">
+        <header className="grid min-h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-white/[0.07] bg-[#17171e] px-3 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-sm font-bold text-violet-300">Y</div>
+            <div className="hidden min-w-0 sm:block">
+              <p className="text-[9px] leading-3 text-slate-500">Project Name</p>
+              <p className="truncate text-[11px] font-medium text-slate-200">{githubRepo ? `${githubRepo.owner}/${githubRepo.repository}` : 'Nuevo proyecto'}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onToggleChat}
+              disabled={!onToggleChat}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+              aria-label={isChatCollapsed ? 'Mostrar chat' : 'Collapse Chat'}
+            >
+              {isChatCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+              <span className="hidden xl:inline">{isChatCollapsed ? 'Show Chat' : 'Collapse Chat'}</span>
+            </button>
+          </div>
+          <nav className="flex items-center rounded-md border border-white/[0.07] bg-[#101116] p-0.5" aria-label="Workspace view">
+            {TAB_ITEMS.slice(0, 2).map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setWorkspacePanelTab(tab.key)}
+                className={cn(
+                  'whitespace-nowrap rounded px-2.5 py-1.5 text-[10px] transition sm:px-3',
+                  workspacePanelTab === tab.key ? 'bg-[#292a34] text-white' : 'text-slate-400 hover:text-white',
+                )}
+              >
+                {tab.key === 'preview' ? 'Live Preview' : 'Code / Edit'}
+              </button>
+            ))}
+          </nav>
+          <div className="flex min-w-0 items-center justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => githubRepo ? void handleGithubCommit() : setGithubDialogOpen(true)}
+              disabled={githubBusy}
+              className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.06] lg:inline-flex"
+            >
+              <RefreshCw size={12} className={githubBusy ? 'animate-spin' : ''} /> Git Sync
+            </button>
+            <button
+              type="button"
+              onClick={() => setGithubDialogOpen(true)}
+              disabled={githubBusy}
+              className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.06] xl:inline-flex"
+            >
+              <Github size={12} /> Git Repository
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleShareArtifact()}
+              disabled={githubBusy}
+              className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.06]"
+            >
+              <Share2 size={12} /><span className="hidden md:inline">Share</span>
+            </button>
+            {!collaboration && (
+              <button
+                type="button"
+                onClick={() => void handleCreateCollaborationInvite()}
+                disabled={githubBusy}
+                className="hidden rounded-md border border-white/[0.08] p-1.5 text-slate-300 hover:bg-white/[0.06] lg:inline-flex"
+                title="Invitar colaboradores"
+              >
+                <Users size={12} />
+              </button>
+            )}
+            <button type="button" onClick={() => setWorkspacePanelTab('exports')} className="hidden rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.06] sm:inline-flex">
+              Export
+            </button>
+            <button
+              type="button"
+              onClick={onToggleFullIde}
+              disabled={!onToggleFullIde}
+              className="hidden items-center gap-1.5 rounded-md border border-violet-400/25 bg-violet-400/10 px-2 py-1.5 text-[10px] text-violet-100 hover:bg-violet-400/20 md:inline-flex disabled:opacity-50"
+            >
+              {isFullIdeMode ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              {isFullIdeMode ? 'Exit IDE' : 'Full IDE Mode'}
+            </button>
             <button
               type="button"
               onClick={() => importInputRef.current?.click()}
-              className="rounded-md border border-purple-500/30 bg-purple-500/10 px-2 py-1 text-[10px] text-purple-100 transition hover:bg-purple-500/20"
+              aria-label="Importar archivos"
+              className="rounded-md p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white"
+              title={isImporting ? 'Importando…' : 'Importar archivos'}
             >
-              {isImporting ? 'Importando...' : 'Importar'}
+              <FolderOpen size={14} />
             </button>
             <button
               type="button"
-              onClick={() => setIsWorkspaceOpen(false)}
-              className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
+              onClick={() => {
+                setIsWorkspaceOpen(false);
+                onCloseWorkspace?.();
+              }}
+              aria-label="Cerrar Workspace"
+              className="rounded-md p-1.5 text-slate-400 hover:bg-white/[0.06] hover:text-white"
             >
-              Cerrar
+              <X size={14} />
             </button>
           </div>
-        </div>
+        </header>
 
         <input
           ref={importInputRef}
@@ -1027,7 +1603,14 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
           onChange={(event) => void handleImportFiles(event.target.files)}
         />
 
-        <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-5">
+        {githubStatus && <p role="status" className="px-4 py-2 text-[10px] text-slate-300">{githubStatus}</p>}
+        {collaborationStatus && <p role="status" className="px-4 py-2 text-[10px] text-emerald-100/80">{collaborationStatus}</p>}
+
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <aside className="w-[190px] shrink-0 border-r border-white/[0.07] bg-[#101117]">
+            <FileExplorer />
+          </aside>
+          <section className="flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
           <div
             onDragOver={(event) => { event.preventDefault(); setIsDraggingFile(true); }}
             onDragLeave={() => setIsDraggingFile(false)}
@@ -1070,36 +1653,154 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
               </button>
             ))}
           </div>
+          </section>
         </div>
+        {githubDialogOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="github-import-title">
+            <div className="w-full max-w-lg rounded-2xl border border-purple-500/20 bg-[#0c0d13] p-5 shadow-2xl">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 id="github-import-title" className="text-sm font-semibold text-white">Importar desde GitHub</h2>
+                  <p className="mt-1 text-[11px] text-slate-400">Repositorio público o privado con autorización GitHub vinculada.</p>
+                </div>
+                <button type="button" onClick={() => setGithubDialogOpen(false)} className="text-lg text-slate-400 hover:text-white" aria-label="Cerrar">×</button>
+              </div>
+              <label htmlFor="github-repository-url" className="mb-1.5 block text-[11px] text-slate-300">URL del repositorio</label>
+              <input
+                id="github-repository-url"
+                type="url"
+                value={githubRepositoryUrl}
+                onChange={(event) => setGithubRepositoryUrl(event.target.value)}
+                placeholder="https://github.com/owner/repository"
+                autoComplete="url"
+                className="w-full rounded-xl border border-white/10 bg-[#0a0a0c] px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-purple-500/50"
+              />
+              <p className="mt-2 text-[10px] leading-5 text-slate-500">
+                Se importan hasta 120 archivos de texto (2.5 MB en total). Los archivos de entorno/secretos se excluyen y no se ejecuta ni instala ningún paquete automáticamente.
+              </p>
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <button type="button" onClick={() => void handleConnectGithub()} disabled={githubBusy} className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 hover:bg-white/10 disabled:opacity-50">
+                  <Github className="h-3.5 w-3.5" /> Conectar GitHub
+                </button>
+                <button type="button" onClick={() => void handleGithubImport()} disabled={githubBusy || !githubRepositoryUrl.trim()} className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50">
+                  {githubBusy ? 'Importando...' : 'Importar repositorio'}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col bg-[#090b12] text-white">
-      <div className="flex items-center justify-between border-b border-white/5 bg-white/5 px-4 py-2">
-        <div className="flex items-center gap-2">
+      <header className="grid min-h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-white/[0.07] bg-[#17171e] px-3 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-sm font-bold text-violet-300">Y</div>
+          <div className="hidden min-w-0 sm:block">
+            <p className="text-[9px] leading-3 text-slate-500">Project Name</p>
+            <p className="max-w-48 truncate text-[11px] font-medium text-slate-200">
+              {githubRepo ? `${githubRepo.owner}/${githubRepo.repository}` : liveArtifact.name}
+            </p>
+          </div>
           <button
             type="button"
-            onClick={() => setDrawerOpen((open) => !open)}
-            className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
+            onClick={onToggleChat}
+            disabled={!onToggleChat}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+            aria-label={isChatCollapsed ? 'Mostrar chat' : 'Collapse Chat'}
+            title={isChatCollapsed ? 'Mostrar chat' : 'Collapse Chat'}
           >
-            <FolderOpen className="h-3.5 w-3.5 text-purple-300" />
-            Proyectos
+            {isChatCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
+            <span className="hidden xl:inline">{isChatCollapsed ? 'Show Chat' : 'Collapse Chat'}</span>
           </button>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-purple-300">Workspace</span>
-          <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-[9px] text-purple-200">
-            {liveArtifact.path.split('/').pop()}
-          </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <nav className="flex items-center rounded-md border border-white/[0.07] bg-[#101116] p-0.5" aria-label="Workspace view">
+          {TAB_ITEMS.slice(0, 2).map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setWorkspacePanelTab(tab.key)}
+              className={cn(
+                'whitespace-nowrap rounded px-2.5 py-1.5 text-[10px] transition sm:px-3',
+                workspacePanelTab === tab.key
+                  ? 'bg-[#292a34] text-white'
+                  : 'text-slate-400 hover:text-white',
+              )}
+            >
+              {tab.key === 'preview' ? 'Live Preview' : 'Code / Edit'}
+            </button>
+          ))}
+        </nav>
+
+        <div className="flex min-w-0 items-center justify-end gap-1">
+          <button
+            type="button"
+            onClick={() => githubRepo ? void handleGithubCommit() : setGithubDialogOpen(true)}
+            disabled={githubBusy}
+            className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50 lg:inline-flex"
+            title={githubRepo ? `Sincronizar ${githubRepo.owner}/${githubRepo.repository}` : 'Sincronizar con GitHub'}
+          >
+            <RefreshCw size={12} className={githubBusy ? 'animate-spin' : ''} />
+            {githubBusy ? 'Syncing…' : 'Git Sync'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setGithubDialogOpen(true)}
+            disabled={githubBusy}
+            className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50 xl:inline-flex"
+          >
+            <Github size={12} /> Git Repository
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleShareArtifact()}
+            disabled={githubBusy}
+            className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+            title="Compartir proyecto"
+          >
+            <Share2 size={12} /><span className="hidden md:inline">Share</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspacePanelTab('exports')}
+            className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white sm:inline-flex"
+          >
+            <Download size={12} /> Export
+          </button>
+          <button
+            type="button"
+            onClick={onToggleFullIde}
+            disabled={!onToggleFullIde}
+            className="hidden items-center gap-1.5 rounded-md border border-violet-400/25 bg-violet-400/10 px-2 py-1.5 text-[10px] text-violet-100 transition hover:bg-violet-400/20 md:inline-flex disabled:opacity-50"
+            aria-pressed={isFullIdeMode}
+          >
+            {isFullIdeMode ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            {isFullIdeMode ? 'Exit IDE' : 'Full IDE Mode'}
+          </button>
           <button
             type="button"
             onClick={() => importInputRef.current?.click()}
-            className="rounded-md border border-purple-500/30 bg-purple-500/10 px-2 py-1 text-[10px] text-purple-100 transition hover:bg-purple-500/20"
+            title="Importar archivos"
+            aria-label="Importar archivos"
+            className="rounded-md p-1.5 text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
           >
-            {isImporting ? 'Importando...' : 'Importar'}
+            <FolderOpen size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsWorkspaceOpen(false);
+              onCloseWorkspace?.();
+            }}
+            aria-label="Cerrar Workspace"
+            title="Cerrar Workspace"
+            className="rounded-md p-1.5 text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
+          >
+            <X size={14} />
           </button>
           <input
             ref={importInputRef}
@@ -1108,56 +1809,8 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
             className="hidden"
             onChange={(event) => void handleImportFiles(event.target.files)}
           />
-          {versions.length > 1 && (
-            <>
-              <button
-                type="button"
-                onClick={() => handleVersionStep('prev')}
-                disabled={versionIndex === 0}
-                className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <span className="inline-flex items-center gap-1"><ChevronLeft className="h-3 w-3" /> Anterior</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleVersionStep('next')}
-                disabled={versionIndex >= versions.length - 1}
-                className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <span className="inline-flex items-center gap-1">Siguiente <ChevronRight className="h-3 w-3" /></span>
-              </button>
-              <span className="text-[9px] text-slate-400">Versión {Math.min(versionIndex + 1, versions.length)} de {versions.length}</span>
-            </>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setDrawerOpen((value) => !value)}
-            className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
-            aria-label="Alternar proyectos guardados"
-          >
-            {drawerOpen ? 'Ocultar' : 'Proyectos'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsMaximized((value) => !value)}
-            className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
-            aria-label="Maximizar Workspace"
-          >
-            {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsWorkspaceOpen(false)}
-            className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
-            aria-label="Cerrar Workspace"
-          >
-            Cerrar
-          </button>
         </div>
-      </div>
+      </header>
 
       <div
         onDragOver={(event) => { event.preventDefault(); setIsDraggingFile(true); }}
@@ -1173,66 +1826,36 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
             Suelta el archivo para importarlo al Workspace
           </div>
         )}
-        <div className="flex items-center gap-2 px-3 py-2">
-          {TAB_ITEMS.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setWorkspacePanelTab(tab.key as any)}
-              className={cn(
-                'rounded-lg px-3 py-1.5 text-[11px] font-medium transition-all duration-300 ease-in-out',
-                workspacePanelTab === tab.key
-                  ? 'bg-purple-600 text-white shadow-[0_0_20px_rgba(168,85,247,0.35)]'
-                  : 'text-slate-300 hover:bg-white/5 hover:text-white',
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {githubStatus && (
+          <div className="border-b border-white/5 px-3 py-2 text-[10px] text-slate-300" role="status">
+            {githubStatus}
+          </div>
+        )}
+        {collaborationStatus && (
+          <div className="border-b border-white/5 px-3 py-2 text-[10px] text-emerald-100/80" role="status">
+            {collaborationStatus}
+          </div>
+        )}
       </div>
 
-      <div className={cn('flex min-h-0 flex-1 overflow-hidden transition-all duration-300 ease-in-out', isMaximized && 'bg-[#07080d]')}>
-        {drawerOpen && (
-          <aside className="w-[220px] border-r border-white/5 bg-[#0b0b12] p-3">
-            <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-purple-300">
-              <Layers3 className="h-3.5 w-3.5" />
-              Proyectos guardados
-            </div>
-
-            <div className="space-y-4 overflow-y-auto">
-              {savedProjects.map((group) => (
-                <div key={group.category} className="space-y-2">
-                  <p className="text-[9px] uppercase tracking-[0.18em] text-slate-500">{group.category}</p>
-                  {group.items.length === 0 ? (
-                    <p className="text-[10px] text-slate-500">Vacío</p>
-                  ) : (
-                    group.items.map((project) => (
-                      <div key={`${group.category}-${project.id}`} className="rounded-xl border border-white/10 bg-white/5 p-2 transition hover:border-purple-500/30 hover:bg-purple-500/10">
-                        <button
-                          type="button"
-                          onClick={() => onArtifactChange?.(project)}
-                          className="w-full text-left"
-                        >
-                          <p className="truncate text-[11px] font-medium text-white">{project.name}</p>
-                          <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-slate-400">{project.language}</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleEditProjectWithAI(project)}
-                          className="mt-2 w-full rounded-lg border border-purple-500/20 bg-purple-500/10 px-2 py-1.5 text-[10px] font-medium text-purple-100 transition hover:bg-purple-500/20"
-                        >
-                          Editar con IA
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              ))}
+      <div className="flex min-h-0 flex-1 overflow-hidden bg-[#101116]">
+        {workspacePanelTab === 'code' && drawerOpen && (
+          <aside className="w-[190px] shrink-0 border-r border-white/[0.07] bg-[#101117]">
+            <FileExplorer />
+          </aside>
+        )}
+        {workspacePanelTab === 'preview' && drawerOpen && (
+          <aside className="hidden w-[210px] shrink-0 border-r border-white/[0.07] bg-[#101117] xl:block">
+            <div className="h-full overflow-hidden">
+              <FileExplorer />
             </div>
           </aside>
         )}
-
+        {workspacePanelTab === 'exports' && drawerOpen && (
+          <aside className="w-[190px] shrink-0 border-r border-white/[0.07] bg-[#101117]">
+            <FileExplorer />
+          </aside>
+        )}
         <div className="min-h-0 flex-1 overflow-hidden">
           {workspacePanelTab === 'preview' && (
             <div className="flex h-full flex-col overflow-hidden bg-[#0a0a0c]">
@@ -1253,12 +1876,20 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
               </div>
 
               <div className="min-h-0 flex-1 overflow-hidden">
-                <iframe
-                  title="Workspace preview"
-                  srcDoc={previewDoc}
-                  className="h-full w-full border-0 bg-[#0a0a0c]"
-                  sandbox="allow-scripts allow-same-origin allow-forms"
-                />
+                {workspaceFiles.some((file) => file.path.replace(/\\/g, '/') === 'package.json') ? (
+                  <WebContainerRunner
+                    files={workspaceFiles}
+                    projectName={githubRepo ? `${githubRepo.owner}/${githubRepo.repository}` : liveArtifact.name}
+                  />
+                ) : (
+                  <iframe
+                    title="Workspace preview"
+                    key={previewReloadKey}
+                    srcDoc={previewDoc}
+                    className="h-full w-full border-0 bg-[#0a0a0c]"
+                    sandbox="allow-scripts allow-forms"
+                  />
+                )}
               </div>
 
               {liveArtifact.type === 'web' && (
@@ -1284,73 +1915,135 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
           )}
 
           {workspacePanelTab === 'code' && (
-            <div className="relative flex h-full flex-col overflow-hidden bg-[#0d0d12]">
-              <div className="flex items-center justify-between border-b border-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-slate-400">
-                <span className="inline-flex items-center gap-2">
-                  <Code2 className="h-3.5 w-3.5 text-purple-300" />
-                  Editor
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-500">{liveArtifact.language}</span>
-                  <button
-                    type="button"
-                    onClick={handleOpenImageModal}
-                    className="rounded-lg border border-purple-500/30 bg-purple-500/10 px-2 py-1 text-[9px] font-medium text-purple-100 transition hover:bg-purple-500/20"
-                  >
-                    Generar imagen
-                  </button>
-                </div>
-              </div>
-              <div className="relative min-h-0 flex-1 overflow-hidden">
-                <textarea
-                  ref={textareaRef}
-                  value={liveArtifact.content}
-                  onSelect={handleSelection}
-                  onClick={handleSelection}
-                  onMouseUp={handleSelection}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    updateActiveFile(nextValue);
-                  }}
-                  spellCheck={false}
-                  className="h-full w-full resize-none bg-[#0d0d12] px-4 py-3 font-mono text-[12px] leading-6 text-slate-100 outline-none"
-                  style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
-                />
-
-                {ghostMenu.visible && (
-                  <button
-                    type="button"
-                    onClick={handleOpenImageModal}
-                    className="absolute z-20 rounded-lg border border-purple-500/30 bg-[#12131a] px-2 py-1 text-[9px] font-medium text-purple-200 shadow-lg"
-                    style={{ left: ghostMenu.x + 8, top: ghostMenu.y + 18 }}
-                  >
-                    Generar imagen
-                  </button>
-                )}
-              </div>
-
-              {ghostMenu.visible && (
-                <div
-                  className="absolute z-30 flex gap-2 rounded-xl border border-purple-500/30 bg-[#12131a] p-2 shadow-2xl"
-                  style={{ left: ghostMenu.x, top: ghostMenu.y }}
-                >
-                  {[
-                    { label: 'Reescribir', action: 'rewrite' },
-                    { label: 'Traducir', action: 'translate' },
-                    { label: 'Expandir', action: 'expand' },
-                    { label: 'Corregir', action: 'fix' },
-                  ].map((option) => (
+            <div className="flex h-full min-w-0 overflow-hidden bg-[#0d0d12]">
+              <section className="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-white/[0.07]">
+                <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#17171e] px-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Code2 className="h-3.5 w-3.5 shrink-0 text-violet-300" />
+                    <span className="text-[10px] font-medium text-slate-300">Editor</span>
                     <button
-                      key={option.action}
                       type="button"
-                      onClick={() => runGhostAction(option.action as 'rewrite' | 'translate' | 'expand' | 'fix')}
-                      className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-200 hover:bg-purple-500/10"
+                      onClick={() => setDrawerOpen((open) => !open)}
+                      title={drawerOpen ? 'Ocultar explorador' : 'Mostrar explorador'}
+                      aria-label={drawerOpen ? 'Ocultar explorador' : 'Mostrar explorador'}
+                      className="rounded p-1 text-slate-500 hover:bg-white/[0.06] hover:text-white"
                     >
-                      {option.label}
+                      <FolderOpen size={13} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500">{liveArtifact.language}</span>
+                    <button
+                      type="button"
+                      onClick={handleOpenImageModal}
+                      className="rounded p-1 text-slate-500 transition hover:bg-white/[0.06] hover:text-violet-200"
+                      aria-label="Generar imagen para el texto seleccionado"
+                      title="Generar imagen para el texto seleccionado"
+                    >
+                      <Sparkles size={12} />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex h-8 shrink-0 items-stretch overflow-x-auto border-b border-white/[0.06] bg-[#14151b]">
+                  {workspaceFiles.map((file) => (
+                    <button
+                      key={file.id}
+                      type="button"
+                      onClick={() => setActiveWorkspaceFile(file.id)}
+                      className={cn(
+                        'flex max-w-48 shrink-0 items-center gap-2 border-r border-white/[0.05] px-3 text-[10px] transition',
+                        file.id === activeWorkspaceFile
+                          ? 'border-t-2 border-t-violet-400 bg-[#1e1f27] text-white'
+                          : 'border-t-2 border-t-transparent text-slate-500 hover:bg-white/[0.03] hover:text-slate-300',
+                      )}
+                      title={file.path}
+                    >
+                      <span className="truncate">{file.path}</span>
+                      {file.isModified && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-violet-300" />}
                     </button>
                   ))}
                 </div>
-              )}
+                <div className="relative min-h-0 flex-1 overflow-hidden">
+                  <CodeEditor readOnly={false} inputRef={textareaRef} onSelection={handleSelection} />
+                  {ghostMenu.visible && (
+                    <div
+                      className="absolute z-20 flex gap-1 rounded-lg border border-white/10 bg-[#17171e] p-1 shadow-xl"
+                      style={{ left: ghostMenu.x, top: ghostMenu.y }}
+                    >
+                      {[
+                        { label: 'Reescribir', action: 'rewrite' },
+                        { label: 'Traducir', action: 'translate' },
+                        { label: 'Expandir', action: 'expand' },
+                        { label: 'Corregir', action: 'fix' },
+                      ].map((option) => (
+                        <button
+                          key={option.action}
+                          type="button"
+                          onClick={() => runGhostAction(option.action as 'rewrite' | 'translate' | 'expand' | 'fix')}
+                          className="rounded px-2 py-1 text-[9px] text-slate-300 transition hover:bg-violet-500/15 hover:text-white"
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="flex min-w-[260px] flex-1 flex-col overflow-hidden bg-[#0b0c11]">
+                <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#17171e] px-3">
+                  <div className="flex items-center gap-2 text-[10px] font-medium text-slate-300">
+                    <MonitorPlay className="h-3.5 w-3.5 text-violet-300" />
+                    Live Preview
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="hidden items-center gap-1 text-[9px] text-emerald-300 sm:inline-flex">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Live
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewReloadKey((key) => key + 1)}
+                      title="Actualizar preview"
+                      aria-label="Actualizar preview"
+                      className="rounded p-1 text-slate-500 hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <RefreshCw size={12} />
+                    </button>
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-hidden bg-white">
+                  {workspaceFiles.some((file) => file.path.replace(/\\/g, '/') === 'package.json') ? (
+                    <WebContainerRunner
+                      files={workspaceFiles}
+                      projectName={githubRepo ? `${githubRepo.owner}/${githubRepo.repository}` : liveArtifact.name}
+                    />
+                  ) : (
+                    <iframe
+                      title="Workspace live preview"
+                      key={previewReloadKey}
+                      srcDoc={previewDoc}
+                      className="h-full w-full border-0"
+                      sandbox="allow-scripts allow-forms"
+                    />
+                  )}
+                </div>
+                <div className="max-h-28 shrink-0 overflow-auto border-t border-white/[0.07] bg-[#101116] px-3 py-2 font-mono text-[10px]">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[9px] uppercase tracking-[0.14em] text-slate-500">
+                    <Terminal size={12} /> Terminal / Console
+                  </div>
+                  {consoleLogs.length === 0 ? (
+                    <p className="text-slate-600">Preview listo. No hay logs todavía.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {consoleLogs.slice(-8).map((log) => (
+                        <div key={log.id} className={log.level === 'error' ? 'text-red-300' : 'text-slate-400'}>
+                          {log.level === 'error' ? '[ERROR]' : '[LOG]'} {log.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
           )}
 
@@ -1400,6 +2093,14 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
                   </button>
                   <button
                     type="button"
+                    onClick={() => void handleExportPptx()}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
+                  >
+                    <Download className="h-4 w-4" />
+                    Exportar PowerPoint
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleDownload}
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
                   >
@@ -1422,6 +2123,53 @@ export function WorkspaceCanvas({ currentArtifact, onArtifactChange }: { current
           )}
         </div>
       </div>
+
+      {githubDialogOpen && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="github-import-title">
+          <div className="w-full max-w-lg rounded-2xl border border-purple-500/20 bg-[#0c0d13] p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 id="github-import-title" className="text-sm font-semibold text-white">Importar desde GitHub</h2>
+                <p className="mt-1 text-[11px] text-slate-400">Repositorio público o privado con autorización GitHub vinculada.</p>
+              </div>
+              <button type="button" onClick={() => setGithubDialogOpen(false)} className="text-lg text-slate-400 hover:text-white" aria-label="Cerrar">×</button>
+            </div>
+            <label htmlFor="github-repository-url" className="mb-1.5 block text-[11px] text-slate-300">URL del repositorio</label>
+            <input
+              id="github-repository-url"
+              type="url"
+              value={githubRepositoryUrl}
+              onChange={(event) => setGithubRepositoryUrl(event.target.value)}
+              placeholder="https://github.com/owner/repository"
+              autoComplete="url"
+              className="w-full rounded-xl border border-white/10 bg-[#0a0a0c] px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-purple-500/50"
+            />
+            <p className="mt-2 text-[10px] leading-5 text-slate-500">
+              Se importan hasta 120 archivos de texto (2.5 MB en total). Los archivos de entorno/secretos se excluyen y no se ejecuta ni instala ningún paquete automáticamente.
+            </p>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => void handleConnectGithub()}
+                disabled={githubBusy}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 hover:bg-white/10 disabled:opacity-50"
+              >
+                <Github className="h-3.5 w-3.5" />
+                Conectar GitHub
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleGithubImport()}
+                disabled={githubBusy || !githubRepositoryUrl.trim()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50"
+              >
+                {githubBusy ? 'Importando...' : 'Importar repositorio'}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {imageModal.open && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">

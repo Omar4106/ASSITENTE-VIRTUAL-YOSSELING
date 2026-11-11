@@ -1,220 +1,204 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useMemo, useState } from 'react';
+import {
+  ChevronDown,
+  ChevronRight,
+  FileCode2,
+  FileJson2,
+  FileText,
+  Folder,
+  FolderOpen,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { ChevronRight, File, Folder, FolderOpen, Share2, MoreHorizontal, Trash2, Plus, Copy, Type } from 'lucide-react';
 import type { WorkspaceFile } from '@/types';
 
 interface FileExplorerProps {
   className?: string;
 }
 
-const BUILT_IN_EXTS = {
-  tsx: 'component',
-  jsx: 'component',
-  ts: 'logic',
-  js: 'logic',
-  page: 'page',
-  routes: 'route',
-  styles: 'style',
-  utils: 'logic',
-  config: 'config',
-  json: 'config',
-  markdown: 'markdown',
-} as const;
+interface FileTreeNode {
+  name: string;
+  path: string;
+  file?: WorkspaceFile;
+  children: FileTreeNode[];
+}
+
+function getFileIcon(path: string) {
+  const extension = path.split('.').pop()?.toLowerCase();
+  if (extension === 'json') return <FileJson2 size={14} className="shrink-0 text-amber-300" />;
+  if (['tsx', 'ts', 'jsx', 'js', 'css', 'html'].includes(extension ?? '')) {
+    return <FileCode2 size={14} className="shrink-0 text-sky-300" />;
+  }
+  if (['md', 'txt'].includes(extension ?? '')) return <FileText size={14} className="shrink-0 text-slate-400" />;
+  return <FileText size={14} className="shrink-0 text-slate-500" />;
+}
+
+function createFileTree(files: WorkspaceFile[]) {
+  const root: FileTreeNode = { name: '', path: '', children: [] };
+
+  for (const file of files) {
+    const parts = file.path.replace(/\\/g, '/').split('/').filter(Boolean);
+    let node = root;
+    parts.forEach((part, index) => {
+      const path = parts.slice(0, index + 1).join('/');
+      let child = node.children.find((entry) => entry.name === part);
+      if (!child) {
+        child = { name: part, path, children: [] };
+        node.children.push(child);
+      }
+      if (index === parts.length - 1) child.file = file;
+      node = child;
+    });
+  }
+
+  const sortNodes = (node: FileTreeNode) => {
+    node.children.sort((a, b) => {
+      const aIsFolder = !a.file || a.children.length > 0;
+      const bIsFolder = !b.file || b.children.length > 0;
+      if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    node.children.forEach(sortNodes);
+  };
+  sortNodes(root);
+  return root.children;
+}
 
 export function FileExplorer({ className }: FileExplorerProps) {
-  const workspaceFiles = useAppStore(s => s.workspaceFiles);
-  const activeWorkspaceFile = useAppStore(s => s.activeWorkspaceFile);
-  const setActiveWorkspaceFile = useAppStore(s => s.setActiveWorkspaceFile);
-  const selectedModel = useAppStore(s => s.selectedModel);
+  const workspaceFiles = useAppStore((state) => state.workspaceFiles);
+  const activeWorkspaceFile = useAppStore((state) => state.activeWorkspaceFile);
+  const setActiveWorkspaceFile = useAppStore((state) => state.setActiveWorkspaceFile);
+  const setWorkspaceFiles = useAppStore((state) => state.setWorkspaceFiles);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
+  const tree = useMemo(() => createFileTree(workspaceFiles), [workspaceFiles]);
 
-  const getFileIcon = (filePath: string) => {
-    const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-    const type = BUILT_IN_EXTS[ext as keyof typeof BUILT_IN_EXTS] ?? 'other';
-
-    if (type === 'component' || ext === 'tsx' || ext === 'jsx') {
-      return <Type size={14} className="text-purple-400" />;
-    } else if (type === 'page' || type === 'route') {
-      return <Share2 size={14} className="text-blue-400" />;
-    } else if (type === 'style') {
-      return <Share2 size={14} className="text-cyan-400" />;
-    } else if (type === 'config' || type === 'markdown') {
-      return <File size={14} className="text-yellow-400" />;
-    } else {
-      return <File size={14} className="text-slate-400" />;
+  const createNewFile = () => {
+    const existingPaths = new Set(workspaceFiles.map((file) => file.path));
+    let index = 1;
+    let path = 'src/components/Component.tsx';
+    while (existingPaths.has(path)) {
+      index += 1;
+      path = `src/components/Component${index}.tsx`;
     }
-  };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleCreateNewFile = () => {
-    const newFile: WorkspaceFile = {
+    const now = Date.now();
+    const file: WorkspaceFile = {
       id: crypto.randomUUID(),
-      path: 'src/components/NewComponent.tsx',
-      content: `// Nuevo componente creado por Yosseling
-import React from 'react';
-
-export function NewComponent() {
-  return (
-    <div>
-      <h1>Aquí comienza tu componente</h1>
-      <p>Edita este archivo y tu preview se actualizará en tiempo real</p>
-    </div>
-  );
-}`,
-      language: 'typescript',
+      path,
+      content: `export function Component() {\n  return <main>Hello, Yosseling</main>;\n}\n`,
+      language: 'tsx',
       type: 'component',
       isModified: true,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      chatId: undefined,
+      createdAt: now,
+      updatedAt: now,
     };
-
-    useAppStore.getState().workspaceFiles.push(newFile);
-    setActiveWorkspaceFile(newFile.id);
-  };
-
-  const groupedFiles = workspaceFiles.reduce((acc, file) => {
-    const folderPath = file.path.split('/').slice(0, -1).join('/') || 'root';
-    if (!acc[folderPath]) {
-      acc[folderPath] = [];
-    }
-    acc[folderPath].push(file);
-    return acc;
-  }, {} as Record<string, WorkspaceFile[]>);
-
-  const folders = Object.keys(groupedFiles).sort();
-  const sortedFiles = workspaceFiles.sort((a, b) => {
-    const aIsFolder = folders.includes(a.path.split('/').slice(0, -1).join('/'));
-    const bIsFolder = folders.includes(b.path.split('/').slice(0, -1).join('/'));
-    if (aIsFolder && !bIsFolder) return -1;
-    if (!aIsFolder && bIsFolder) return 1;
-    return a.path.localeCompare(b.path);
-  });
-
-  const createCopyOfActiveFile = () => {
-    if (!activeWorkspaceFile) return;
-    const original = workspaceFiles.find(f => f.id === activeWorkspaceFile);
-    if (!original) return;
-
-    const copy: WorkspaceFile = {
-      ...original,
-      id: crypto.randomUUID(),
-      path: original.path.replace(/\.tsx?$/, '-copy.tsx').replace(/\.jsx?$/, '-copy.jsx'),
-      content: `${original.content}\n\n// Copiado desde ${original.path}`,
-      isModified: true,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    useAppStore.getState().workspaceFiles.push(copy);
-    setActiveWorkspaceFile(copy.id);
+    setWorkspaceFiles([...workspaceFiles, file]);
+    setActiveWorkspaceFile(file.id);
   };
 
   const deleteFile = (fileId: string) => {
-    useAppStore.getState().workspaceFiles.filter(f => f.id !== fileId);
-    if (activeWorkspaceFile === fileId) {
-      setActiveWorkspaceFile(null);
+    const nextFiles = workspaceFiles.filter((file) => file.id !== fileId);
+    setWorkspaceFiles(nextFiles);
+    if (activeWorkspaceFile === fileId) setActiveWorkspaceFile(nextFiles[0]?.id ?? null);
+  };
+
+  const renderNode = (node: FileTreeNode, depth: number): React.ReactNode => {
+    const isFolder = !node.file || node.children.length > 0;
+    const isCollapsed = collapsedFolders.has(node.path);
+
+    if (isFolder) {
+      return (
+        <div key={node.path}>
+          <button
+            type="button"
+            onClick={() => setCollapsedFolders((current) => {
+              const next = new Set(current);
+              if (next.has(node.path)) next.delete(node.path);
+              else next.add(node.path);
+              return next;
+            })}
+            className="flex h-7 w-full items-center gap-1.5 pr-2 text-left text-[11px] text-slate-300 transition hover:bg-white/[0.04]"
+            style={{ paddingLeft: 8 + depth * 12 }}
+            aria-expanded={!isCollapsed}
+          >
+            {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+            {isCollapsed
+              ? <Folder size={14} className="shrink-0 text-violet-300" />
+              : <FolderOpen size={14} className="shrink-0 text-violet-300" />}
+            <span className="truncate">{node.name}</span>
+          </button>
+          {!isCollapsed && node.children.map((child) => renderNode(child, depth + 1))}
+        </div>
+      );
     }
+
+    const file = node.file;
+    if (!file) return null;
+    const isActive = file.id === activeWorkspaceFile;
+    return (
+      <div
+        key={file.id}
+        className={cn(
+          'group/file flex h-7 items-center border-l-2 pr-2 transition',
+          isActive
+            ? 'border-violet-400 bg-violet-500/10 text-violet-100'
+            : 'border-transparent text-slate-400 hover:bg-white/[0.04] hover:text-slate-200',
+        )}
+        style={{ paddingLeft: 30 + depth * 12 }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveWorkspaceFile(file.id)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          title={file.path}
+        >
+          {getFileIcon(file.path)}
+          <span className="truncate text-[11px]">{node.name}</span>
+          {file.isModified && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => deleteFile(file.id)}
+          aria-label={`Eliminar ${node.name}`}
+          title="Eliminar archivo"
+          className="ml-1 hidden rounded p-1 text-slate-500 hover:bg-red-500/10 hover:text-red-300 group-hover/file:inline-flex"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
+    );
   };
 
   return (
-    <div
-      className={cn(
-        'group flex flex-col h-full bg-black/40 border-r border-white/5 overflow-hidden'
-      )}
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-        <span className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-          <Folder size={14} className="text-purple-400" />
-          📁 Workspace
-        </span>
-        <span className="text-[10px] text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
-          {sortedFiles.length} archivos
-        </span>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-white/5">
+    <aside className={cn('flex h-full min-h-0 flex-col overflow-hidden bg-[#101117]', className)}>
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.06] px-3">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">File Explorer</span>
         <button
-          onClick={handleCreateNewFile}
-          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-purple-300 hover:bg-purple-500/10 hover:text-white rounded transition-colors"
-          title="Crear nuevo arch"
+          type="button"
+          onClick={createNewFile}
+          aria-label="Crear archivo"
+          title="Crear archivo"
+          className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-white"
         >
-          <Plus size={12} />
-          <span>Nuevo</span>
+          <Plus size={14} />
         </button>
-        {activeWorkspaceFile && (
-          <button
-            onClick={createCopyOfActiveFile}
-            className="flex items-center justify-center px-2 py-1.5 text-xs text-slate-400 hover:bg-white/10 hover:text-white rounded transition-colors"
-            title="Copiar archivo activo"
-          >
-            <Copy size={12} />
-          </button>
-        )}
       </div>
-
-      {/* File List */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden">
-        {/* Commited Files */}
-        {sortedFiles.length > 0 && (
-          <div>
-            <div className="px-3 py-1.5 bg-white/5 border-b border-white/5">
-              <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">
-                Archivos
-              </span>
-            </div>
-            {sortedFiles.map(file => {
-              const isActive = file.id === activeWorkspaceFile;
-              return (
-                <div
-                  key={file.id}
-                  className={cn(
-                    'flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors border-l-2',
-                    isActive
-                      ? 'bg-purple-500/10 border-purple-500 text-purple-300 font-medium'
-                      : 'hover:bg-white/5 border-transparent text-slate-400'
-                  )}
-                  onClick={() => setActiveWorkspaceFile(file.id)}
-                >
-                  {getFileIcon(file.path)}
-                  <span className="text-xs truncate flex-1">{file.path.split('/').pop()}</span>
-                  {file.isModified && (
-                    <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-green-400" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Empty State */}
-        {sortedFiles.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-40 px-4 text-center">
-            <Folder size={32} className="text-slate-600 mb-2" />
-            <p className="text-xs text-slate-500 mb-1">
-              Tu workspace está vacío
-            </p>
-            <p className="text-[10px] text-slate-600">
-              Usa el botón "Nuevo" para crear archivos
-            </p>
+      <div className="min-h-0 flex-1 overflow-auto py-1">
+        {tree.length ? (
+          tree.map((node) => renderNode(node, 0))
+        ) : (
+          <div className="px-3 py-5 text-[11px] leading-5 text-slate-500">
+            Aún no hay archivos. Usa + para empezar.
           </div>
         )}
       </div>
-    </div>
+      <div className="shrink-0 border-t border-white/[0.06] px-3 py-2 text-[10px] text-slate-500">
+        {workspaceFiles.length} {workspaceFiles.length === 1 ? 'archivo' : 'archivos'}
+      </div>
+    </aside>
   );
 }
