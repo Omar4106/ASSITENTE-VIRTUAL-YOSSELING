@@ -7,6 +7,7 @@ import {
   FileCode2,
   FileJson2,
   FileText,
+  Download,
   Folder,
   FolderOpen,
   Plus,
@@ -29,6 +30,9 @@ interface FileTreeNode {
 
 function getFileIcon(path: string) {
   const extension = path.split('.').pop()?.toLowerCase();
+  if (extension === 'xlsx') return <FileText size={14} className="shrink-0 text-emerald-300" />;
+  if (extension === 'pptx') return <FileText size={14} className="shrink-0 text-orange-300" />;
+  if (extension === 'docx') return <FileText size={14} className="shrink-0 text-blue-300" />;
   if (extension === 'json') return <FileJson2 size={14} className="shrink-0 text-amber-300" />;
   if (['tsx', 'ts', 'jsx', 'js', 'css', 'html'].includes(extension ?? '')) {
     return <FileCode2 size={14} className="shrink-0 text-sky-300" />;
@@ -158,6 +162,7 @@ export function FileExplorer({ className }: FileExplorerProps) {
         >
           {getFileIcon(file.path)}
           <span className="truncate text-[11px]">{node.name}</span>
+          {file.binaryData && <Download size={11} className="shrink-0 text-emerald-300" aria-label="Archivo descargable" />}
           {file.isModified && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />}
         </button>
         <button

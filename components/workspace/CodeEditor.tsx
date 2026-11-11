@@ -15,14 +15,13 @@ interface CodeEditorProps {
 
 function getLanguage(path: string | undefined, language: string | undefined) {
   const extension = path?.split('.').pop()?.toLowerCase();
-  if (extension === 'tsx' || extension === 'jsx') return 'tsx';
-  if (extension === 'ts') return 'typescript';
-  if (extension === 'js') return 'javascript';
-  if (extension === 'css') return 'css';
-  if (extension === 'html') return 'html';
-  if (extension === 'json') return 'json';
-  if (extension === 'md') return 'markdown';
-  if (extension === 'py' || language === 'python') return 'python';
+  const extensionLanguages: Record<string, string> = {
+    tsx: 'tsx', jsx: 'jsx', ts: 'typescript', js: 'javascript', mjs: 'javascript',
+    css: 'css', html: 'html', htm: 'html', json: 'json', md: 'markdown',
+    py: 'python', java: 'java', go: 'go', rs: 'rust', c: 'c', cpp: 'cpp',
+    cs: 'csharp', sql: 'sql', sh: 'bash', bash: 'bash', yaml: 'yaml', yml: 'yaml', xml: 'xml',
+  };
+  if (extension && extensionLanguages[extension]) return extensionLanguages[extension];
   return language ?? 'typescript';
 }
 

@@ -16,6 +16,7 @@ import { CinematicBackground } from '@/components/background/CinematicBackground
 import { ClientOnly } from '@/components/ui/ClientOnly';
 import { WorkspaceCanvas } from '@/components/workspace/WorkspaceCanvas';
 import { X } from 'lucide-react';
+import type { WorkspaceLanguage } from '@/types';
 
 const AdvancedTools = dynamic(
   () => import('@/components/tools/AdvancedTools').then((module) => module.AdvancedTools),
@@ -37,7 +38,7 @@ type ProjectArtifact = {
   name: string;
   type: 'document' | 'web';
   content: string;
-  language: 'markdown' | 'html' | 'json' | 'typescript' | 'javascript' | 'css' | 'python' | 'jsx' | 'tsx' | 'py';
+  language: WorkspaceLanguage;
   path: string;
   createdAt: number;
   updatedAt: number;
@@ -121,7 +122,10 @@ export default function Home() {
   }, [setIsWorkspaceOpen, setWorkspacePanelTab]);
 
   useEffect(() => {
-    if (!workspaceFiles.length) return;
+    if (!workspaceFiles.length) {
+      if (isWorkspaceOpen) setCurrentArtifact(null);
+      return;
+    }
     const latest = [...workspaceFiles].sort((a, b) => b.updatedAt - a.updatedAt)[0];
     const artifactMeta = inferArtifactKind(latest.content, latest.path);
     const nextProject: ProjectArtifact = {
@@ -146,7 +150,7 @@ export default function Home() {
       const filtered = previous.filter((project) => project.id !== nextProject.id);
       return [nextProject, ...filtered].slice(0, 8);
     });
-  }, [workspaceFiles]);
+  }, [isWorkspaceOpen, workspaceFiles]);
 
   useEffect(() => {
     if (isWorkspaceOpen) return;
@@ -388,7 +392,7 @@ export default function Home() {
             {!(shouldShowWorkspace && chatCollapsed) && (
               <div
                 className={`relative h-full min-w-0 overflow-hidden transition-all duration-300 ease-in-out ${
-                  shouldShowWorkspace ? 'w-full md:w-[28%]' : 'w-full'
+                  shouldShowWorkspace ? 'w-full md:w-1/2' : 'w-full'
                 }`}
               >
                 <div
@@ -411,11 +415,11 @@ export default function Home() {
                 <motion.aside
                   key="workspace-panel"
                   initial={{ opacity: 0, x: 24, width: 0 }}
-                  animate={{ opacity: 1, x: 0, width: chatCollapsed ? '100%' : '72%' }}
+                  animate={{ opacity: 1, x: 0, width: chatCollapsed ? '100%' : '50%' }}
                   exit={{ opacity: 0, x: 24, width: 0 }}
                   transition={{ duration: 0.3, ease: 'easeInOut' }}
                   className="absolute inset-0 z-30 flex min-h-0 flex-col border-l border-white/10 bg-[#090b12]/90 backdrop-blur-xl transition-all duration-300 ease-in-out max-md:!w-full md:relative md:inset-auto md:z-auto"
-                  style={{ width: chatCollapsed ? '100%' : '72%' }}
+                  style={{ width: chatCollapsed ? '100%' : '50%' }}
                 >
                   <WorkspaceCanvas
                     currentArtifact={currentArtifact}

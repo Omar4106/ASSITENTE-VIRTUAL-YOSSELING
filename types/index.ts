@@ -162,12 +162,18 @@ export type WorkspacePanelTab =
   | 'exports';
 
 /** Archivo en el virtual file system del workspace */
+export type WorkspaceLanguage = 'typescript' | 'javascript' | 'jsx' | 'tsx' | 'css' | 'html' | 'json' | 'markdown' | 'py' | 'python'
+  | 'java' | 'go' | 'rust' | 'c' | 'cpp' | 'csharp' | 'sql' | 'bash' | 'yaml' | 'xml'
+  | 'docx' | 'xlsx' | 'pptx';
+
 export interface WorkspaceFile {
   id: string;
   chatId?: string;
   path: string;
   content: string;
-  language: 'typescript' | 'javascript' | 'jsx' | 'tsx' | 'css' | 'html' | 'json' | 'markdown' | 'py' | 'python';
+  binaryData?: string;
+  binaryMimeType?: string;
+  language: WorkspaceLanguage;
   type: 'component' | 'page' | 'style' | 'config' | 'route' | 'other';
   isModified: boolean;
   createdAt: number;

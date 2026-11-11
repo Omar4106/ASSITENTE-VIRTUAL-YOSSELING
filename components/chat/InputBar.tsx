@@ -12,6 +12,7 @@ import type { ImageGenerationProvider } from '@/types';
 import { useVoice } from '@/hooks/useVoice';
 import { useFileUpload } from '@/hooks/useFileUpload';
 import { cn } from '@/lib/utils';
+import { translate } from '@/lib/i18n';
 
 export function InputBar() {
   const {
@@ -19,6 +20,7 @@ export function InputBar() {
     pendingFiles, removePendingFile, clearPendingFiles,
     isListening, isSpeaking, composerDraft, setComposerDraft,
   } = useAppStore();
+  const language = useAppStore((state) => state.settings.language);
   const { startListening, stopListening } = useVoice();
   const { processFiles, isProcessing, processingName, error, clearError } = useFileUpload();
 
@@ -212,7 +214,7 @@ export function InputBar() {
           value={input}
           onChange={e => { setInput(e.target.value); autoResize(); }}
           onKeyDown={handleKeyDown}
-          placeholder="Escribe tu mensaje..."
+          placeholder={translate(language, 'chat.placeholder')}
           rows={1}
           className="w-full bg-transparent text-white text-sm placeholder-[#B3B3B3]/50 resize-none outline-none px-4 pt-4 pb-2 max-h-[200px] overflow-y-auto"
           style={{ minHeight: '52px' }}
@@ -221,40 +223,40 @@ export function InputBar() {
         {/* Toolbar */}
         <div className="flex min-w-0 items-center gap-1.5 px-2 pb-2 sm:gap-2 sm:px-3 sm:pb-3">
           <div className="flex min-w-0 flex-1 items-center gap-1">
-            <label className="sr-only" htmlFor="chat-output-mode">Tipo de respuesta</label>
+            <label className="sr-only" htmlFor="chat-output-mode">{translate(language, 'chat.responseType')}</label>
             <select
               id="chat-output-mode"
               value={outputMode}
               onChange={(event) => handleOutputModeSelect(event.target.value)}
               className="h-9 max-w-[86px] shrink-0 rounded-lg border border-purple-300/15 bg-[#171523] px-1.5 text-[10px] text-white/80 outline-none focus:border-purple-300/40 sm:max-w-none sm:px-2 sm:text-xs"
             >
-              <option value="text">Texto</option>
-              <option value="image">Imagen</option>
-              <option value="audio">Audio</option>
-              <option value="video">Video</option>
+              <option value="text">{translate(language, 'chat.text')}</option>
+              <option value="image">{translate(language, 'chat.image')}</option>
+              <option value="audio">{translate(language, 'chat.audio')}</option>
+              <option value="video">{translate(language, 'chat.video')}</option>
             </select>
-            <ToolBtn icon={<Paperclip size={15} />} label="Adjuntar archivos" onClick={() => fileInputRef.current?.click()} />
+            <ToolBtn icon={<Paperclip size={15} />} label={translate(language, 'chat.attachFiles')} onClick={() => fileInputRef.current?.click()} />
             <ToolBtn
               icon={isListening ? <MicOff size={15} className="text-red-400" /> : <Mic size={15} />}
-              label={isListening ? 'Detener voz' : 'Micrófono'}
+              label={isListening ? translate(language, 'chat.stopVoice') : translate(language, 'chat.microphone')}
               onClick={handleVoice}
               active={isListening}
             />
             <details className="group relative shrink-0">
               <summary
-                aria-label="Más opciones"
-                title="Más opciones"
+                aria-label={translate(language, 'chat.more')}
+                title={translate(language, 'chat.more')}
                 className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-lg text-[#B3B3B3] transition-colors hover:bg-white/5 hover:text-white [&::-webkit-details-marker]:hidden"
               >
                 <MoreHorizontal size={17} />
               </summary>
               <div className="absolute bottom-full left-0 z-30 mb-2 flex min-w-44 flex-col gap-1 rounded-xl border border-white/10 bg-[#111018] p-1.5 shadow-xl shadow-black/40">
-                <ToolMenuBtn icon={<ImageIcon size={15} />} label="Adjuntar imagen" onClick={() => imageInputRef.current?.click()} />
-                <ToolMenuBtn icon={<Camera size={15} />} label="Tomar una foto" onClick={() => cameraInputRef.current?.click()} />
-                <ToolMenuBtn icon={<Printer size={15} />} label="Imprimir" onClick={handlePrint} />
+                <ToolMenuBtn icon={<ImageIcon size={15} />} label={translate(language, 'chat.attachImage')} onClick={() => imageInputRef.current?.click()} />
+                <ToolMenuBtn icon={<Camera size={15} />} label={translate(language, 'chat.takePhoto')} onClick={() => cameraInputRef.current?.click()} />
+                <ToolMenuBtn icon={<Printer size={15} />} label={translate(language, 'chat.print')} onClick={handlePrint} />
                 <ToolMenuBtn
                   icon={expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                  label={expanded ? 'Contraer editor' : 'Expandir editor'}
+                  label={translate(language, expanded ? 'chat.collapseEditor' : 'chat.expandEditor')}
                   onClick={() => setExpanded(!expanded)}
                 />
               </div>
@@ -281,7 +283,7 @@ export function InputBar() {
       </div>
 
       <p className="text-center text-[10px] text-[#B3B3B3]/40 mt-2">
-        Yosseling puede cometer errores. Verifica la información importante.
+        {translate(language, 'chat.disclaimer')}
       </p>
 
       {isMediaDialogOpen && (
