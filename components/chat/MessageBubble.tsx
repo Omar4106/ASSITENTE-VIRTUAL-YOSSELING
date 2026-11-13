@@ -10,6 +10,8 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Copy, Check, RefreshCw, CreditCard as Edit2, Trash2, Volume2, ThumbsUp, ThumbsDown, MoveHorizontal as MoreHorizontal, User, Download, Brain, ChevronDown } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import type { Message } from '@/types';
+import { detectMediaGenerationIntent } from '@/lib/image-intent';
+import { translate } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { MediaDownloader } from './MediaDownloader';
 
@@ -259,6 +261,8 @@ function AutoIllustration({ prompt }: { prompt: string }) {
       setLoading(true);
       setError(null);
       try {
+        // NOTA: Este endpoint usa proveedores SDXL/HuggingFace en el servidor
+        // No requiere autenticación de usuarios en Puter.com
         const res = await fetch('/api/generate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -325,7 +329,7 @@ function AutoIllustration({ prompt }: { prompt: string }) {
 }
 
 export function MessageBubble({ message, chatId, onSpeak }: Props) {
-  const { deleteMessage, regenerateResponse, editMessage, settings } = useAppStore();
+  const { deleteMessage, regenerateResponse, editMessage, setMessageImage, settings } = useAppStore();
   const [isMounted, setIsMounted] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -362,7 +366,7 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
     setIsMounted(true);
   }, []);
 
-  const isEmptyStreaming = !isUser && message.isStreaming && !message.content && !message.reasoning && !message.imageUrl && !message.isMediaGenerating;
+  const isEmptyStreaming = !isUser && message.isStreaming && !message.content && !message.reasoning && !message.imageUrl && !message.isMediaGenerating && !message.isImageGenerating;
 
   const socialUrl = isUser && message.content
     ? (() => {
@@ -383,6 +387,9 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
     editMessage(chatId, message.id, editContent);
     setIsEditing(false);
   };
+
+  // La generación de imágenes ahora se maneja en lib/store.ts antes de enviar al LLM.
+  // Este componente solo muestra el estado de carga/error de la imagen.
 
   const formatTime = (ts: number) =>
     new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -556,6 +563,7 @@ export function MessageBubble({ message, chatId, onSpeak }: Props) {
               ) : (
                 <p className="whitespace-pre-wrap">{displayContent}</p>
               ))}
+
 
               {/* Auto diagrama (SVG dinámico) */}
               {!isUser && !message.isStreaming && generarDiagramaPrompt && (

@@ -15,6 +15,7 @@ import { GalleryPanel } from '@/components/panels/GalleryPanel';
 import { CinematicBackground } from '@/components/background/CinematicBackground';
 import { ClientOnly } from '@/components/ui/ClientOnly';
 import { WorkspaceCanvas } from '@/components/workspace/WorkspaceCanvas';
+import type { WorkspaceLanguage } from '@/types';
 import { X } from 'lucide-react';
 
 const AdvancedTools = dynamic(
@@ -37,7 +38,7 @@ type ProjectArtifact = {
   name: string;
   type: 'document' | 'web';
   content: string;
-  language: 'markdown' | 'html' | 'json' | 'typescript' | 'javascript' | 'css' | 'python' | 'jsx' | 'tsx' | 'py';
+  language: WorkspaceLanguage;
   path: string;
   createdAt: number;
   updatedAt: number;

@@ -1,4 +1,4 @@
-const IMAGE_REQUEST_PATTERN = /(?:genera(?:r)?|crear?|dibuja(?:r)?|imagina|ilustra(?:r)?|pinta(?:r)?|dise[ñn]a(?:r)?|haz(?:me)?|hacer).*?(?:imagen|ilustraci[oó]n|dibujo|retrato|escena|logo|p[oó]ster|poster|fondo|wallpaper|avatar|foto|gr[aá]fico|gr[aá]fica)|^(?:imagina|dibuja|pinta|ilustra)\b/i;
+const IMAGE_REQUEST_PATTERN = /\b(?:genera(?:r|me)?|crea(?:r|me)?|haz(?:me)?|dibuja(?:me)?|pinta(?:r|me)?|ilustra(?:r|me)?|disena(?:r|me)?|imagina)\b.*?\b(?:imagen|ilustracion|dibujo|retrato|escena|logo|poster|cartel|fondo|wallpaper|avatar|foto|grafico|grafica|arte|render)\b|^(?:(?:por\s+favor|please)\s+)?(?:imagina|dibuja(?:me)?|pinta(?:me)?|ilustra(?:me)?)\b/i;
 const VIDEO_MEDIA_PATTERN = /\b(?:videos?|clips?|movimiento|grabaci[oó]n|grabar|grabado|audiovisual(?:es)?|pel[ií]culas?|films?|animacion(?:es)?|generaci[oó]n de video)\b/i;
 const AUDIO_MEDIA_PATTERN = /\b(?:audios?|cancion(?:es)?|pistas?|musica|sonidos?)\b/i;
 const IMAGE_MEDIA_PATTERN = /\b(?:imagen(?:es)?|ilustracion(?:es)?|dibujos?|retratos?|escenas?|logos?|posters?|fondos?|wallpapers?|avatares?|fotos?|graficos?)\b/i;
@@ -22,7 +22,9 @@ export function detectMediaGenerationIntent(text: string): MediaGenerationMode |
 }
 
 export function isImageGenerationRequest(text: string): boolean {
-  return detectMediaGenerationIntent(text) === 'image' || IMAGE_REQUEST_PATTERN.test(text.trim());
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (MEDIA_EXPLANATION_PATTERN.test(normalized)) return false;
+  return detectMediaGenerationIntent(text) === 'image' || IMAGE_REQUEST_PATTERN.test(normalized);
 }
 
 const OFFLINE_INTENT_PATTERN = /(?:sin\s*(?:conexi[oó]n|internet|se[ñn]al|red)|offline|modo\s*local|sin\s*red|desconectad|sin\s*internt|puedes?\s+(?:funcionar|responder|trabajar)\s+sin|usar\s+sin\s*(?:inter|conexi|se[ñn]al)|descarga\s+(?:el\s+)?modo\s*local|c[oó]mo\s+te\s+uso\s+sin)/i;

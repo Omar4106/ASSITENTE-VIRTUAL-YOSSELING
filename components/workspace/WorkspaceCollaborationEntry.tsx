@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { WorkspaceCanvas } from '@/components/workspace/WorkspaceCanvas';
 import { useAppStore } from '@/lib/store';
+import type { WorkspaceLanguage } from '@/types';
 
 type JoinedCollaboration = {
   collaborationId: string;
@@ -25,7 +26,7 @@ export function WorkspaceCollaborationEntry({ inviteId }: { inviteId: string }) 
     name: string;
     type: 'document' | 'web';
     content: string;
-    language: 'markdown' | 'html' | 'json' | 'typescript' | 'javascript' | 'css' | 'python' | 'jsx' | 'tsx' | 'py';
+    language: WorkspaceLanguage;
     path: string;
     createdAt: number;
     updatedAt: number;

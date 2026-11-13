@@ -141,23 +141,31 @@ export function WebContainerRunner({ files, projectName }: { files: WorkspaceFil
 
       let resolveReady: (url: string) => void;
       let rejectReady: (error: Error) => void;
+      let readyTimeout: number | undefined;
       const ready = new Promise<string>((resolve, reject) => {
         resolveReady = resolve;
         rejectReady = reject;
       });
       const unsubscribe = container.on('server-ready', (_port, url) => resolveReady(url));
-      const serverProcess = await container.spawn('npm', ['run', runScript, '--', '--host', '0.0.0.0'], { env: { CI: true } });
-      serverProcessRef.current = serverProcess;
-      appendOutput(setLogs, serverProcess);
-      void serverProcess.exit.then((code) => {
-        if (code !== 0) rejectReady(new Error(`El servidor terminó con código ${code}.`));
-      });
+      readyTimeout = window.setTimeout(() => {
+        rejectReady(new Error('El servidor no abrió un puerto de vista previa en 45 segundos.'));
+      }, 45_000);
       try {
+        const serverProcess = await container.spawn('npm', ['run', runScript, '--', '--host', '0.0.0.0'], { env: { CI: true } });
+        serverProcessRef.current = serverProcess;
+        appendOutput(setLogs, serverProcess);
+        void serverProcess.exit.then((code) => {
+          if (code !== 0) rejectReady(new Error(`El servidor terminó con código ${code}.`));
+        });
         setPreviewUrl(await ready);
       } finally {
+        if (readyTimeout !== undefined) window.clearTimeout(readyTimeout);
         unsubscribe();
       }
     } catch (reason) {
+      serverProcessRef.current?.kill();
+      serverProcessRef.current = null;
+      setPreviewUrl('');
       console.error('[WebContainer] Project execution failed:', reason);
       setError(reason instanceof Error ? reason.message : 'No se pudo ejecutar el proyecto en el navegador.');
     } finally {

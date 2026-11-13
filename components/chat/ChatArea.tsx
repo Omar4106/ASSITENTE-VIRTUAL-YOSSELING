@@ -11,20 +11,22 @@ import { useVoice } from '@/hooks/useVoice';
 import { useFileUpload } from '@/hooks/useFileUpload';
 import { VoicePlayer } from './VoicePlayer';
 import { useAppStore as useAppStoreForSettings } from '@/lib/store';
+import { translate } from '@/lib/i18n';
 
 const QUICK_ACTIONS = [
-  { label: 'Generar imagen', prompt: 'Genera una imagen de ' },
-  { label: 'Leer en voz alta', prompt: '' },
-  { label: 'Analizar documento', prompt: 'Analiza este documento: ' },
-  { label: 'Imprimir documento', prompt: 'Prepara el siguiente texto para imprimir: ' },
-  { label: 'Resumir texto', prompt: 'Resume el siguiente texto: ' },
-  { label: 'Código', prompt: 'Escribe el código para: ' },
-  { label: 'OCR', prompt: 'Extrae el texto de esta imagen: ' },
-  { label: 'Traducir', prompt: 'Traduce al español: ' },
-];
+  { translation: 'chat.quickImage', promptEs: 'Genera una imagen de ', promptEn: 'Generate an image of ' },
+  { translation: 'chat.quickListen', promptEs: '', promptEn: '' },
+  { translation: 'chat.quickAnalyze', promptEs: 'Analiza este documento: ', promptEn: 'Analyze this document: ' },
+  { translation: 'chat.quickPrint', promptEs: 'Prepara el siguiente texto para imprimir: ', promptEn: 'Prepare the following text for printing: ' },
+  { translation: 'chat.quickSummarize', promptEs: 'Resume el siguiente texto: ', promptEn: 'Summarize the following text: ' },
+  { translation: 'chat.quickCode', promptEs: 'Escribe el código para: ', promptEn: 'Write code for: ' },
+  { translation: 'chat.quickOcr', promptEs: 'Extrae el texto de esta imagen: ', promptEn: 'Extract the text from this image: ' },
+  { translation: 'chat.quickTranslate', promptEs: 'Traduce al español: ', promptEn: 'Translate to English: ' },
+] as const;
 
 export function ChatArea() {
   const { activeChatId, isStreaming, sendMessage } = useAppStore();
+  const language = useAppStore((state) => state.settings.language);
   const activeChat = useActiveChat();
   const { speak, stopSpeaking, pauseSpeaking, resumeSpeaking, seek, skipBy, toggleMute, isMuted, voiceState } = useVoice();
   const { processFiles, isProcessing, processingName } = useFileUpload();
@@ -89,12 +91,12 @@ export function ChatArea() {
     >
       {isDraggingFiles && (
         <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-cyan-300/60 bg-cyan-950/60 text-sm font-medium text-cyan-100 backdrop-blur-sm">
-          Suelta tus archivos para que Yosseling los analice
+          {translate(language, 'chat.dragDrop')}
         </div>
       )}
       {isProcessing && (
         <div className="pointer-events-none absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-cyan-300/20 bg-cyan-950/80 px-4 py-2 text-xs text-cyan-100 shadow-lg">
-          Extrayendo texto del archivo{processingName ? `: ${processingName}` : '...'}
+          {translate(language, 'chat.extracting')}{processingName ? `: ${processingName}` : '...'}
         </div>
       )}
       {/* Messages area */}
@@ -138,10 +140,10 @@ export function ChatArea() {
                 transition={{ delay: 0.2 }}
               >
                 <h2 className="text-2xl font-bold text-white mb-2">
-                  ¡Hola! Soy <span className="gradient-text">Yosseling</span> <Sparkles className="inline w-5 h-5 text-yellow-400" />
+                  {translate(language, 'chat.greeting')} <span className="gradient-text">Yosseling</span> <Sparkles className="inline w-5 h-5 text-yellow-400" />
                 </h2>
                 <p className="text-[#B3B3B3] text-sm mb-8 max-w-md">
-                  Tu asistente inteligente, creada para ayudarte en todo lo que necesites. 💜
+                  {translate(language, 'chat.welcome')} 💜
                 </p>
               </motion.div>
 
@@ -154,16 +156,19 @@ export function ChatArea() {
               >
                 {QUICK_ACTIONS.map((action, i) => (
                   <motion.button
-                    key={action.label}
+                    key={action.translation}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3 + i * 0.05 }}
                     whileHover={{ scale: 1.03, y: -2 }}
                     whileTap={{ scale: 0.97 }}
-                    onClick={() => action.prompt && sendMessage(action.prompt)}
+                    onClick={() => {
+                      const prompt = language === 'en' ? action.promptEn : action.promptEs;
+                      if (prompt) sendMessage(prompt);
+                    }}
                     className="px-3 py-2.5 rounded-xl bg-[#171923] border border-white/[0.06] text-xs text-[#B3B3B3] hover:text-white hover:border-purple-500/30 hover:bg-purple-500/10 transition-all text-center"
                   >
-                    {action.label}
+                    {translate(language, action.translation)}
                   </motion.button>
                 ))}
               </motion.div>
@@ -188,7 +193,7 @@ export function ChatArea() {
               <AnimatePresence>
                 {isStreaming && (() => {
                   const lastAssistant = [...(activeChat?.messages ?? [])].reverse().find(m => m.role === 'assistant');
-                  const hasContent = lastAssistant && (lastAssistant.content || lastAssistant.reasoning);
+                  const hasContent = lastAssistant && (lastAssistant.content || lastAssistant.reasoning || lastAssistant.isImageGenerating);
                   return !hasContent;
                 })() && (
                   <motion.div

@@ -78,6 +78,9 @@ npm install
 
 # Iniciar el servidor de desarrollo
 npm run dev
+
+# Exponer el servidor de desarrollo en la red local (puerto 3002)
+npm run dev:host
 ```
 
 ### Generación de imágenes
@@ -103,11 +106,16 @@ La generación de audio admite una letra opcional: el modelo intentará cantarla
 - El Canvas ofrece vistas **Live Preview** y **Code / Edit**, un explorador jerárquico y pestañas por archivo. El chat se puede colapsar y **Full IDE Mode** expande el Workspace a pantalla completa.
 - Los archivos del VFS, las plantillas y los archivos importados se guardan automáticamente en IndexedDB local. Las respuestas con bloques de código para artefactos se muestran como un resumen en el chat mientras sus archivos se guardan en el Workspace.
 - **Compartir** guarda el artefacto en Supabase y crea una URL pública de solo lectura. **Coeditar** crea un enlace de invitación distinto, secreto y válido solo para usuarios autenticados; trata ese enlace como una contraseña.
+- Al iniciar un proyecto nuevo desde el chat, el VFS activo se limpia antes de generar sus archivos; las solicitudes de modificación conservan el proyecto actual.
+- **Publicar / Compartir** guarda una página HTML junto con sus hojas CSS y scripts JS enlazados en Supabase y crea una URL pública de solo lectura. Publicar requiere iniciar sesión y aplicar las migraciones indicadas; el enlace sí puede abrirse sin iniciar sesión. El publicador estático rechaza scripts JavaScript con imports de módulos que no puede empaquetar. **Coeditar** crea un enlace de invitación distinto, secreto y válido solo para usuarios autenticados; trata ese enlace como una contraseña.
 - Antes de usar estas funciones, aplica las migraciones de `supabase/migrations/` en el proyecto Supabase configurado. No se requiere una clave `service_role` en el navegador.
 - Para importar repositorios privados y hacer push, habilita GitHub como proveedor de identidad en Supabase y configura un OAuth App con el callback `https://<project-ref>.supabase.co/auth/v1/callback`. La app solicita el scope `repo`; cada push requiere que el usuario confirme un mensaje de commit. No se guardan tokens GitHub fuera de la sesión de autenticación.
 - La importación de GitHub limita el tamaño y cantidad de archivos y omite rutas de secretos conocidas. Los archivos importados se incluyen en el contexto de la IA con un límite para evitar exceder el contexto del modelo.
 - Los proyectos Node.js solo se instalan/ejecutan en WebContainers tras marcar el consentimiento por proyecto. Los scripts de dependencias son código de terceros y deben revisarse antes de ejecutarlos.
 - WebContainers requieren HTTPS en producción y aislamiento cross-origin (`COOP: same-origin`, `COEP: credentialless`). La configuración de Next.js habilita estos encabezados y permite los iframes aislados. Para el entorno local usa `http://localhost:3002`; el enlace público usa el host actual y será una URL local hasta que Vercel tenga un dominio configurado.
+- Para abrir el servidor de desarrollo desde otro dispositivo de la misma red, ejecuta `npm run dev:host` y visita `http://<IP-local-del-equipo>:3002`. El router/firewall debe permitir conexiones entrantes. El enlace funciona solo dentro de esa red; para compartir públicamente se necesita un dominio o un túnel HTTPS. Usa `npm run start:host` para exponer un build de producción.
+- Las respuestas de código se sincronizan como archivos del VFS; el Workspace puede exportar el proyecto completo como ZIP. Las exportaciones Word, Excel y PowerPoint crean archivos DOCX, XLSX y PPTX reales.
+- Las solicitudes de creación de aplicaciones, páginas, documentos y archivos de ofimática abren automáticamente el Workspace dividido. HTML, CSS y JavaScript se guardan por separado y los estilos/scripts del VFS se enlazan en la previsualización aislada. DOCX, XLSX y PPTX generados se guardan como entregables descargables en el explorador.
 
 ## 📱 Aplicación Android con Capacitor
 

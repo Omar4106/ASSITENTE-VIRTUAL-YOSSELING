@@ -1,11 +1,12 @@
 'use client';
 
 import Image from 'next/image';
-import { Sun, Moon, Bell, User, Menu, Wrench, LayoutPanelLeft } from 'lucide-react';
+import { Sun, Moon, Bell, User, Menu, Wrench, LayoutPanelLeft, Languages } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { ModelSelector } from './ModelSelector';
 import { cn } from '@/lib/utils';
 import { OfflineStatus } from '@/components/offline/OfflineStatus';
+import { translate } from '@/lib/i18n';
 
 interface HeaderProps {
   onOpenTools: () => void;
@@ -20,6 +21,7 @@ export function Header({ onOpenTools, isToolsOpen, onToggleWorkspace }: HeaderPr
     authUser, isWorkspaceOpen,
   } = useAppStore();
   const isDark = settings.theme === 'dark';
+  const language = settings.language;
 
   const toggleTheme = () => {
     updateSettings({ theme: isDark ? 'light' : 'dark' });
@@ -67,22 +69,33 @@ export function Header({ onOpenTools, isToolsOpen, onToggleWorkspace }: HeaderPr
           type="button"
           onClick={onToggleWorkspace}
           className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 px-2 py-2 text-[10px] font-medium text-purple-100 transition-colors hover:bg-purple-500/20 sm:px-3"
-          aria-label={isWorkspaceOpen ? 'Ocultar Canvas' : 'Abrir Canvas'}
+          aria-label={translate(language, isWorkspaceOpen ? 'header.closeWorkspace' : 'header.openWorkspace')}
           aria-pressed={isWorkspaceOpen}
         >
           <LayoutPanelLeft size={15} />
-          <span className="hidden sm:inline">{isWorkspaceOpen ? 'Ocultar Canvas' : 'Canvas / Workspace'}</span>
+          <span className="hidden sm:inline">{isWorkspaceOpen ? translate(language, 'header.closeWorkspace') : translate(language, 'header.openWorkspace')}</span>
         </button>
 
         <button
           type="button"
           onClick={onOpenTools}
           className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-xs text-[#B3B3B3] transition-colors hover:bg-white/5 hover:text-white sm:px-3"
-          aria-label={isToolsOpen ? 'Volver al chat' : 'Abrir herramientas'}
+          aria-label={translate(language, isToolsOpen ? 'header.backToChat' : 'header.tools')}
           aria-pressed={isToolsOpen}
         >
           <Wrench size={16} />
-          <span className="hidden sm:inline">{isToolsOpen ? 'Volver al chat' : 'Herramientas'}</span>
+          <span className="hidden sm:inline">{isToolsOpen ? translate(language, 'header.backToChat') : translate(language, 'header.tools')}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => updateSettings({ language: language === 'es' ? 'en' : 'es' })}
+          aria-label={translate(language, 'header.language')}
+          title={translate(language, 'header.language')}
+          className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-2 text-[10px] font-medium text-slate-300 transition hover:bg-white/5 hover:text-white"
+        >
+          <Languages size={14} />
+          {language.toUpperCase()}
         </button>
 
         <button type="button" onClick={toggleTheme} aria-label={isDark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'} className="rounded-lg p-2 text-[#B3B3B3] transition-colors hover:bg-white/5 hover:text-white">

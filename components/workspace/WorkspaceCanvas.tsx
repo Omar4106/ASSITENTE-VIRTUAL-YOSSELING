@@ -34,10 +34,11 @@ import {
 import { useAppStore } from '@/lib/store';
 import { createClient as createSupabaseClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { translate } from '@/lib/i18n';
 import { FileExplorer } from '@/components/workspace/FileExplorer';
 import { CodeEditor } from '@/components/workspace/CodeEditor';
 import { WebContainerRunner } from '@/components/workspace/WebContainerRunner';
-import type { WorkspaceFile } from '@/types';
+import type { WorkspaceFile, WorkspaceLanguage } from '@/types';
 
 const TAB_ITEMS = [
   { key: 'preview', label: 'Preview' },
@@ -103,7 +104,7 @@ type WorkspaceArtifact = {
   name: string;
   type: 'document' | 'web';
   content: string;
-  language: 'markdown' | 'html' | 'json' | 'typescript' | 'javascript' | 'css' | 'python' | 'jsx' | 'tsx' | 'py';
+  language: WorkspaceLanguage;
   path: string;
   createdAt: number;
   updatedAt: number;
@@ -159,6 +160,86 @@ function escapeHtml(value: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function markdownTableRows(content: string): string[][] {
+  const rows = content.split(/\r?\n/).filter((line) => line.includes('|'));
+  return rows
+    .filter((line) => !/^\s*\|?[\s:|-]+\|?\s*$/.test(line))
+    .map((line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()));
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    const chunk = bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length));
+    for (let index = 0; index < chunk.length; index++) binary += String.fromCharCode(chunk[index]);
+  }
+  return btoa(binary);
+}
+
+function resolveWorkspaceAssetPath(sourcePath: string, assetPath: string) {
+  if (/^(?:[a-z]+:|\/\/|data:|#)/i.test(assetPath)) return undefined;
+  const directory = sourcePath.includes('/') ? sourcePath.slice(0, sourcePath.lastIndexOf('/') + 1) : '';
+  const segments: string[] = [];
+  for (const segment of `${directory}${assetPath}`.replace(/\\/g, '/').split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') segments.pop();
+    else segments.push(segment);
+  }
+  return segments.join('/');
+}
+
+function buildPublicWebBundle(entryFile: WorkspaceFile, files: WorkspaceFile[]) {
+  const normalizePath = (path: string) => path.replace(/\\/g, '/');
+  const entryPath = normalizePath(entryFile.path);
+  const styles = files
+    .filter((file) => /\.css$/i.test(file.path))
+    .map((file) => file.content.replace(/<\/style/gi, '<\\/style'))
+    .filter(Boolean);
+  const html = entryFile.content.replace(/<link\b([^>]*?)href=(["'])([^"']+\.css(?:\?[^"']*)?)\2([^>]*)>/gi, (tag, _before: string, _quote: string, href: string) => {
+    const assetPath = resolveWorkspaceAssetPath(entryPath, href.split('?')[0]);
+    return files.some((file) => normalizePath(file.path) === assetPath) ? '' : tag;
+  });
+  let bundled = html;
+  if (styles.length) {
+    const styleTag = `<style>${styles.join('\n')}</style>`;
+    bundled = /<\/head>/i.test(bundled)
+      ? bundled.replace(/<\/head>/i, `${styleTag}\n</head>`)
+      : `${styleTag}\n${bundled}`;
+  }
+
+  const bundledScripts = new Set<string>();
+  const scripts: string[] = [];
+  bundled = bundled.replace(/<script\b([^>]*?)src=(["'])([^"']+)\2([^>]*)>\s*<\/script\s*>/gi, (tag, before: string, _quote: string, src: string, after: string) => {
+    const assetPath = resolveWorkspaceAssetPath(entryPath, src);
+    const asset = files.find((file) => normalizePath(file.path) === assetPath);
+    if (!asset || !/\.(?:m?js|cjs)$/i.test(asset.path)) return tag;
+    if (/\btype=["']module["']/i.test(`${before} ${after}`) && /\bimport\s+(?:[\w*{]|["'])/.test(asset.content)) {
+      throw new Error(`El script ${asset.path} usa imports que este publicador estático no puede empaquetar.`);
+    }
+    bundledScripts.add(asset.id);
+    scripts.push(asset.content);
+    return '';
+  });
+
+  const remainingScripts = files.filter((file) => (
+    /\.(?:m?js|cjs)$/i.test(file.path)
+    && !bundledScripts.has(file.id)
+    && (file.path.split('/').pop()?.toLowerCase() === 'script.js' || files.filter((candidate) => /\.(?:m?js|cjs)$/i.test(candidate.path)).length === 1)
+  ));
+  if (remainingScripts.length) {
+    const sources = remainingScripts.map((file) => {
+      if (/\bimport\s+(?:[\w*{]|["'])/.test(file.content)) {
+        throw new Error(`El script ${file.path} contiene imports y no se puede publicar como página estática.`);
+      }
+      return file.content;
+    });
+    scripts.push(...sources);
+  }
+  const scriptTags = scripts.map((script) => `<script>${script.replace(/<\/script/gi, '<\\/script')}</script>`).join('\n');
+  if (scriptTags) bundled = /<\/body>/i.test(bundled) ? bundled.replace(/<\/body>/i, `${scriptTags}\n</body>`) : `${bundled}\n${scriptTags}`;
+  return bundled;
 }
 
 function sanitizeArtifactText(raw: string) {
@@ -467,96 +548,6 @@ function createConsoleDebugScript() {
   `;
 }
 
-function findWorkspaceAsset(reference: string, entryPath: string, files: WorkspaceFile[]) {
-  if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(reference)) return null;
-
-  let pathname = reference.split(/[?#]/, 1)[0].replace(/\\/g, '/');
-  try {
-    pathname = decodeURIComponent(pathname);
-  } catch {
-    return null;
-  }
-
-  const segments = pathname.startsWith('/')
-    ? []
-    : entryPath.replace(/\\/g, '/').split('/').slice(0, -1);
-  for (const segment of pathname.split('/')) {
-    if (!segment || segment === '.') continue;
-    if (segment === '..') segments.pop();
-    else segments.push(segment);
-  }
-
-  const normalizedPath = segments.join('/');
-  const normalizedFiles = files.map((file) => ({
-    file,
-    path: file.path.replace(/\\/g, '/').replace(/^\/+/, ''),
-  }));
-  const exactMatch = normalizedFiles.find((entry) => entry.path === normalizedPath);
-  if (exactMatch) return exactMatch.file;
-
-  const basename = normalizedPath.split('/').pop();
-  const basenameMatches = normalizedFiles.filter((entry) => entry.path.split('/').pop() === basename);
-  return basenameMatches.length === 1 ? basenameMatches[0].file : null;
-}
-
-function injectIntoHead(html: string, markup: string) {
-  if (/<\/head\s*>/i.test(html)) return html.replace(/<\/head\s*>/i, `${markup}</head>`);
-  if (/<head\b[^>]*>/i.test(html)) return html.replace(/<head\b[^>]*>/i, (head) => `${head}${markup}`);
-  if (/<html\b[^>]*>/i.test(html)) return html.replace(/<html\b[^>]*>/i, (tag) => `${tag}<head>${markup}</head>`);
-  return `<head>${markup}</head>${html}`;
-}
-
-function injectBeforeBodyEnd(html: string, markup: string) {
-  if (/<\/body\s*>/i.test(html)) return html.replace(/<\/body\s*>/i, `${markup}</body>`);
-  if (/<\/html\s*>/i.test(html)) return html.replace(/<\/html\s*>/i, `${markup}</html>`);
-  return `${html}${markup}`;
-}
-
-function inlineWorkspaceAssets(html: string, entryPath: string, files: WorkspaceFile[]) {
-  const usedStyles = new Set<string>();
-  const usedScripts = new Set<string>();
-  const hasScriptElement = /<script\b/i.test(html);
-  let preview = html.replace(/<link\b[^>]*>/gi, (tag) => {
-    if (!/\brel\s*=\s*(["'])?stylesheet\1?(?:\s|\/?>)/i.test(tag)) return tag;
-    const href = tag.match(/\bhref\s*=\s*(["'])(.*?)\1/i)?.[2];
-    if (!href) return tag;
-    const stylesheet = findWorkspaceAsset(href, entryPath, files);
-    if (!stylesheet || !/\.css$/i.test(stylesheet.path)) return tag;
-
-    usedStyles.add(stylesheet.path);
-    const media = tag.match(/\bmedia\s*=\s*(["'])(.*?)\1/i)?.[2];
-    return `<style${media ? ` media="${escapeHtml(media)}"` : ''}>${stylesheet.content.replace(/<\/style/gi, '<\\/style')}</style>`;
-  });
-
-  preview = preview.replace(/<script\b([^>]*?)\bsrc\s*=\s*(["'])(.*?)\2([^>]*)>\s*<\/script\s*>/gi, (tag, before, _quote, src, after) => {
-    const script = findWorkspaceAsset(src, entryPath, files);
-    if (!script || !/\.(?:m?js|cjs)$/i.test(script.path)) return tag;
-    if (/\btype\s*=\s*(["'])module\1/i.test(`${before} ${after}`) && /\b(?:import|export)\b/.test(script.content)) return tag;
-
-    usedScripts.add(script.path);
-    const attributes = `${before} ${after}`.replace(/\s(?:src|integrity|crossorigin|async|defer)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '');
-    return `<script${attributes}>${script.content.replace(/<\/script/gi, '<\\/script')}</script>`;
-  });
-
-  const additionalStyles = files
-    .filter((file) => /\.css$/i.test(file.path) && !usedStyles.has(file.path))
-    .map((file) => `<style>${file.content.replace(/<\/style/gi, '<\\/style')}</style>`)
-    .join('\n');
-  if (additionalStyles) preview = injectIntoHead(preview, additionalStyles);
-
-  if (!usedScripts.size && !hasScriptElement) {
-    const fallbackScript = ['script', 'main', 'app']
-      .map((name) => files.find((file) => new RegExp(`(?:^|/)${name}\\.m?js$`, 'i').test(file.path.replace(/\\/g, '/'))))
-      .find(Boolean);
-    if (fallbackScript) {
-      const script = `<script>${fallbackScript.content.replace(/<\/script/gi, '<\\/script')}</script>`;
-      preview = injectBeforeBodyEnd(preview, script);
-    }
-  }
-
-  return preview;
-}
-
 function toMarkdownTable(rows: unknown[][]) {
   if (!rows.length) return '## Datos importados\n\nSin contenido.';
   const normalized = rows
@@ -704,6 +695,8 @@ export function WorkspaceCanvas({
   onCloseWorkspace?: () => void;
 }) {
   const {
+    settings,
+    updateSettings,
     workspaceFiles,
     activeWorkspaceFile,
     workspacePanelTab,
@@ -712,10 +705,12 @@ export function WorkspaceCanvas({
     setActiveWorkspaceFile,
     setIsWorkspaceOpen,
   } = useAppStore();
+  const language = settings.language;
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const collaborationDocRef = useRef<Y.Doc | null>(null);
+  const generatedOfficeRef = useRef(new Set<string>());
   const selectedWorkspaceFile = workspaceFiles.find((file) => file.id === activeWorkspaceFile) ?? workspaceFiles[0];
   const defaultArtifact = useMemo<WorkspaceArtifact | null>(() => currentArtifact ?? (selectedWorkspaceFile ? {
     id: selectedWorkspaceFile.id,
@@ -736,6 +731,7 @@ export function WorkspaceCanvas({
   const [versions, setVersions] = useState<WorkspaceArtifact[]>([]);
   const [versionIndex, setVersionIndex] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [exportStatus, setExportStatus] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [previewStyle, setPreviewStyle] = useState<'academic' | 'serif' | 'neon' | 'executive'>('academic');
   const [consoleLogs, setConsoleLogs] = useState<Array<{ id: number; level: 'log' | 'error'; message: string }>>([]);
@@ -752,6 +748,119 @@ export function WorkspaceCanvas({
   const [collaborationStatus, setCollaborationStatus] = useState('');
   const [collaboratorCount, setCollaboratorCount] = useState(1);
   const [previewReloadKey, setPreviewReloadKey] = useState(0);
+
+  useEffect(() => {
+    const officeFiles = workspaceFiles.filter((file) => (
+      !file.binaryData
+      && !generatedOfficeRef.current.has(file.id)
+      && ((file.path.toLowerCase().endsWith('.docx') && file.language === 'docx')
+        || (file.path.toLowerCase().endsWith('.xlsx') && file.language === 'xlsx')
+        || (file.path.toLowerCase().endsWith('.pptx') && file.language === 'pptx'))
+    ));
+
+    officeFiles.forEach((file) => {
+      generatedOfficeRef.current.add(file.id);
+      void (async () => {
+        try {
+          let bytes: Uint8Array;
+          let mimeType: string;
+          if (file.language === 'docx') {
+            const { Document, HeadingLevel, Packer, Paragraph, TextRun } = await import('docx');
+            const children = file.content.split(/\r?\n/).flatMap((rawLine) => {
+              const line = rawLine.trim();
+              if (!line) return [new Paragraph({ text: '' })];
+              const heading = line.match(/^(#{1,6})\s+(.+)$/);
+              if (heading) {
+                const level = heading[1].length === 1 ? HeadingLevel.HEADING_1
+                  : heading[1].length === 2 ? HeadingLevel.HEADING_2
+                    : HeadingLevel.HEADING_3;
+                return [new Paragraph({ text: heading[2], heading: level })];
+              }
+              const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+              if (bullet) return [new Paragraph({ text: bullet[1], bullet: { level: 0 } })];
+              const numbered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+              if (numbered) return [new Paragraph({ children: [new TextRun(`${numbered[0].trim()} `), new TextRun(numbered[1])] })];
+              return [new Paragraph({ text: line.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1') })];
+            });
+            const blob = await Packer.toBlob(new Document({ sections: [{ children }] }));
+            bytes = new Uint8Array(await blob.arrayBuffer());
+            mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          } else if (file.language === 'xlsx') {
+            const ExcelJSModule = await import('exceljs');
+            const ExcelJS = ExcelJSModule.default ?? ExcelJSModule;
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Datos');
+            let rows: Array<Array<string | number | boolean>> = [];
+            try {
+              const data: unknown = JSON.parse(file.content);
+              if (Array.isArray(data) && data.length && data.every((row) => row && typeof row === 'object' && !Array.isArray(row))) {
+                const records = data as Array<Record<string, unknown>>;
+                const columns = Array.from(new Set(records.flatMap((record) => Object.keys(record))));
+                rows = [columns, ...records.map((record) => columns.map((column) => {
+                  const value = record[column];
+                  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : String(value ?? '');
+                }))];
+              } else if (Array.isArray(data)) {
+                rows = data.map((row) => (Array.isArray(row) ? row : [row]).map((value) => (
+                  typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : String(value ?? '')
+                )));
+              }
+            } catch {
+              rows = markdownTableRows(file.content);
+            }
+            if (!rows.length) rows = [['Contenido'], ...file.content.split(/\r?\n/).filter(Boolean).map((line) => [line])];
+            worksheet.addRows(rows);
+            const header = worksheet.getRow(1);
+            header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6D28D9' } };
+            worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+            const buffer = await workbook.xlsx.writeBuffer();
+            bytes = new Uint8Array(buffer);
+            mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+          } else {
+            const PptxGenJSModule = await import('pptxgenjs');
+            const PptxGenJS = PptxGenJSModule.default || PptxGenJSModule;
+            const presentation = new PptxGenJS();
+            presentation.layout = 'LAYOUT_16x9';
+            const sections = file.content.split(/(?=^#{1,2}\s+)/m).filter(Boolean);
+            const contentSections = sections.length ? sections : [file.content];
+            const numbered = contentSections.every((section) => /^#{1,2}\s*(?:(?:slide|diapositiva)\s*)?\d+\b/im.test(section.trim()));
+            if (!numbered) {
+              const slide = presentation.addSlide();
+              slide.addText(file.path.split('/').pop()?.replace(/\.pptx$/i, '') ?? 'Presentación', {
+                x: 0.8, y: 1.8, w: 11, h: 1, fontSize: 30, bold: true, color: 'FFFFFF',
+              });
+            }
+            contentSections.forEach((section) => {
+              const lines = section.split('\n').filter(Boolean);
+              const heading = lines.find((line) => /^#{1,2}\s+/.test(line))?.replace(/^#+\s*/, '') ?? 'Diapositiva';
+              const body = lines.filter((line) => !/^#{1,2}\s+/.test(line)).map((line) => line.replace(/^\s*[-*]\s*/, ''));
+              const slide = presentation.addSlide();
+              slide.background = { color: '090B12' };
+              slide.addText(heading, { x: 0.8, y: 0.6, w: 11, h: 0.8, fontSize: 24, bold: true, color: 'FFFFFF' });
+              if (body.length) slide.addText(body.join('\n'), { x: 0.9, y: 1.7, w: 10.8, h: 4.8, fontSize: 16, color: 'E2E8F0', breakLine: false });
+            });
+            const output = await presentation.write({ outputType: 'arraybuffer' });
+            bytes = output instanceof Uint8Array ? output : new Uint8Array(output as ArrayBuffer);
+            mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+          }
+
+          const binaryData = bytesToBase64(bytes);
+          const nextFiles = useAppStore.getState().workspaceFiles.map((entry) => entry.id === file.id
+            ? { ...entry, binaryData, binaryMimeType: mimeType, updatedAt: Date.now() }
+            : entry);
+          setWorkspaceFiles(nextFiles);
+          setExportStatus(language === 'en' ? `${file.path} is ready to download.` : `${file.path} está listo para descargar.`);
+        } catch (error) {
+          generatedOfficeRef.current.delete(file.id);
+          console.error(`[Workspace] Failed to generate ${file.path}:`, error);
+          setExportStatus(error instanceof Error
+            ? language === 'en' ? `Could not generate ${file.path}: ${error.message}` : `No se pudo generar ${file.path}: ${error.message}`
+            : language === 'en' ? `Could not generate ${file.path}.` : `No se pudo generar ${file.path}.`);
+        }
+      })();
+    });
+  }, [language, setWorkspaceFiles, workspaceFiles]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
@@ -974,15 +1083,33 @@ export function WorkspaceCanvas({
     const isWebArtifact = liveArtifact.type === 'web' || lower.endsWith('.html') || /<!doctype html|<html|<body|<div|<section|<main|<script/i.test(content);
 
     if (isWebArtifact) {
-      const html = content.startsWith('<!DOCTYPE') || content.startsWith('<html') || content.startsWith('<body') ? content : `
+      let html = /^<!doctype html|^<html|^<body/i.test(content) ? content : `
         <html>
           <body style="margin:0;background:#0a0a0c;color:#e5e7eb;font-family:Inter,Segoe UI,sans-serif;padding:24px;">
             ${content}
           </body>
         </html>
       `;
-      const withAssets = inlineWorkspaceAssets(html, liveArtifact.path, workspaceFiles);
-      return injectIntoHead(withAssets, createConsoleDebugScript());
+      const previewScripts: string[] = [];
+      html = html.replace(/<link\b([^>]*?)href=(["'])([^"']+)\2([^>]*)>/gi, (tag, before: string, _quote: string, href: string, after: string) => {
+        const assetPath = resolveWorkspaceAssetPath(liveArtifact.path, href);
+        const asset = workspaceFiles.find((file) => file.path.replace(/\\/g, '/') === assetPath);
+        if (!asset || !/\.css$/i.test(asset.path)) return tag;
+        const css = asset.content.replace(/<\/style/gi, '<\\/style');
+        return `<style${before}${after}>${css}</style>`;
+      });
+      html = html.replace(/<script\b([^>]*?)src=(["'])([^"']+)\2([^>]*)>(?:[\s\S]*?)<\/script\s*>/gi, (tag, before: string, _quote: string, src: string, after: string) => {
+        const assetPath = resolveWorkspaceAssetPath(liveArtifact.path, src);
+        const asset = workspaceFiles.find((file) => file.path.replace(/\\/g, '/') === assetPath);
+        if (!asset || !/\.(?:m?js|cjs)$/i.test(asset.path)) return tag;
+        previewScripts.push(asset.content);
+        return '';
+      });
+      if (previewScripts.length) {
+        const scripts = previewScripts.map((script) => `<script>${script.replace(/<\/script/gi, '<\\/script')}</script>`).join('\n');
+        html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${scripts}\n</body>`) : `${html}\n${scripts}`;
+      }
+      return `${html}${createConsoleDebugScript()}`;
     }
 
     if (lower.endsWith('.md') || /^(#\s|[-*]\s|\d+\.\s)/m.test(content) || content.includes('```')) {
@@ -1185,15 +1312,29 @@ export function WorkspaceCanvas({
     setGithubBusy(true);
     setGithubStatus('');
     try {
+      const entryFile = workspaceFiles.find((file) => /(^|\/)index\.html?$/i.test(file.path))
+        ?? workspaceFiles.find((file) => /\.html?$/i.test(file.path));
+      const projectArtifact = entryFile && (
+        liveArtifact.type === 'web' || workspaceFiles.some((file) => /\.html?$/i.test(file.path))
+      )
+        ? {
+          ...liveArtifact,
+          id: entryFile.id,
+          name: liveArtifact.name || entryFile.path.split('/').pop() || 'Yosseling project',
+          type: 'web' as const,
+          path: entryFile.path,
+          content: buildPublicWebBundle(entryFile, workspaceFiles),
+        }
+        : liveArtifact;
       const response = await fetch('/api/workspace/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          artifactId: liveArtifact.id,
-          name: liveArtifact.name,
-          type: liveArtifact.type,
-          path: liveArtifact.path,
-          content: liveArtifact.content,
+          artifactId: projectArtifact.id,
+          name: projectArtifact.name,
+          type: projectArtifact.type,
+          path: projectArtifact.path,
+          content: projectArtifact.content,
         }),
       });
       const result = await response.json() as { error?: string; publicId?: string };
@@ -1290,7 +1431,7 @@ export function WorkspaceCanvas({
     if (!imageModal.paragraph) return;
     setIsGeneratingImage(true);
     try {
-      const prompt = `${imageModal.prompt || imageModal.paragraph}, ${imageModal.style.toLowerCase()} style, editorial illustration, detailed, high quality`;
+      const prompt = `${imageModal.prompt || imageModal.paragraph}, ${imageModal.style.toLowerCase()} style, editorial illustration, detailed`;
       const res = await fetch('/api/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1359,6 +1500,19 @@ export function WorkspaceCanvas({
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadWorkspaceFile = (file: WorkspaceFile) => {
+    if (!file.binaryData) {
+      handleDownload();
+      return;
+    }
+    const raw = atob(file.binaryData);
+    const bytes = Uint8Array.from(raw, (character) => character.charCodeAt(0));
+    downloadBlob(
+      new Blob([bytes], { type: file.binaryMimeType ?? 'application/octet-stream' }),
+      file.path.split('/').pop() ?? 'yosseling-export',
+    );
+  };
+
   const handleVersionStep = (direction: 'prev' | 'next') => {
     if (!versions.length) return;
     const nextIndex = direction === 'prev' ? Math.max(0, versionIndex - 1) : Math.min(versions.length - 1, versionIndex + 1);
@@ -1423,62 +1577,142 @@ export function WorkspaceCanvas({
     pdf.save((liveArtifact.path.split('/').pop() ?? 'yosseling-artifact') + '.pdf');
   };
 
-  const handleExportDocx = () => {
+  const handleExportDocx = async () => {
     if (!liveArtifact) return;
+    setExportStatus('');
+    try {
+      const { Document, HeadingLevel, Paragraph, Packer, TextRun } = await import('docx');
+      let insideCodeBlock = false;
+      const paragraphs = liveArtifact.content.split(/\r?\n/).flatMap((rawLine) => {
+        const line = rawLine.trimEnd();
+        if (/^\s*```/.test(line)) {
+          insideCodeBlock = !insideCodeBlock;
+          return [];
+        }
+        if (!line.trim()) return [new Paragraph({ text: '' })];
+        if (insideCodeBlock) {
+          return [new Paragraph({ children: [new TextRun({ text: line, font: 'Courier New', size: 18 })] })];
+        }
+        const heading = line.match(/^(#{1,6})\s+(.+)$/);
+        if (heading) {
+          const level = heading[1].length === 1 ? HeadingLevel.HEADING_1
+            : heading[1].length === 2 ? HeadingLevel.HEADING_2
+              : HeadingLevel.HEADING_3;
+          return [new Paragraph({ text: heading[2], heading: level })];
+        }
+        const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+        if (bullet) return [new Paragraph({ text: bullet[1], bullet: { level: 0 } })];
+        const numbered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+        if (numbered) return [new Paragraph({ text: numbered[1], numbering: { reference: 'default-numbering', level: 0 } })];
+        return [new Paragraph({
+          children: [new TextRun(line.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1'))],
+        })];
+      });
+      const documentFile = new Document({
+        numbering: { config: [{ reference: 'default-numbering', levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: 'start', style: { paragraph: { indent: { left: 720, hanging: 260 } } } }] }] },
+        sections: [{ children: paragraphs }],
+      });
+      const blob = await Packer.toBlob(documentFile);
+      const filename = (liveArtifact.path.split('/').pop() ?? 'yosseling-artifact').replace(/\.[^/.]+$/, '') + '.docx';
+      downloadBlob(blob, filename);
+      setExportStatus(language === 'en' ? 'DOCX exported successfully.' : 'Documento DOCX exportado correctamente.');
+    } catch (error) {
+      console.error('[Export DOCX] Error:', error);
+      setExportStatus(error instanceof Error
+        ? language === 'en' ? `Could not export DOCX: ${error.message}` : `No se pudo exportar DOCX: ${error.message}`
+        : language === 'en' ? 'Could not export DOCX.' : 'No se pudo exportar DOCX.');
+    }
+  };
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>${escapeHtml(liveArtifact.name || 'Yosseling Artifact')}</title>
-          <style>
-            body {
-              margin: 0;
-              padding: 32px;
-              background: #f8f7fb;
-              color: #18181b;
-              font-family: Arial, Helvetica, sans-serif;
-              line-height: 1.6;
-            }
-            h1, h2, h3, h4 {
-              color: #4c1d95;
-              margin: 0 0 12px;
-            }
-            p, li {
-              margin: 0 0 10px;
-            }
-            code {
-              background: rgba(124, 58, 237, 0.08);
-              padding: 2px 6px;
-              border-radius: 4px;
-            }
-            pre {
-              background: #111827;
-              color: #f5f3ff;
-              padding: 16px;
-              border-radius: 12px;
-              overflow-x: auto;
-            }
-            table { border-collapse: collapse; width: 100%; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-          </style>
-        </head>
-        <body>
-          ${previewDoc.replace(/<html>|<\/html>|<head>[\s\S]*?<\/head>|<body[^>]*>|<\/body>/gi, '')}
-        </body>
-      </html>
-    `;
-
-    const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8' });
-    const filename = (liveArtifact.path.split('/').pop() ?? 'yosseling-artifact').replace(/\.(html|md|txt|json|py|tsx?|js|css)$/i, '') + '.doc';
-    downloadBlob(blob, filename);
+  const handleExportXlsx = async () => {
+    if (!liveArtifact) return;
+    setExportStatus('');
+    try {
+      const ExcelJSModule = await import('exceljs');
+      const ExcelJS = ExcelJSModule.default ?? ExcelJSModule;
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Datos');
+      const normalizeCell = (value: unknown): string | number | boolean => {
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+        if (value == null) return '';
+        return JSON.stringify(value);
+      };
+      let rows: Array<Array<string | number | boolean>> = [];
+      try {
+        const parsed: unknown = JSON.parse(liveArtifact.content);
+        if (Array.isArray(parsed) && parsed.length && parsed.every((row) => row && typeof row === 'object' && !Array.isArray(row))) {
+          const records = parsed as Array<Record<string, unknown>>;
+          const columns = Array.from(new Set(records.flatMap((record) => Object.keys(record))));
+          rows = [columns, ...records.map((record) => columns.map((column) => normalizeCell(record[column])))];
+        } else if (Array.isArray(parsed)) {
+          rows = parsed.map((row) => (Array.isArray(row) ? row : [row]).map(normalizeCell));
+        } else if (parsed && typeof parsed === 'object') {
+          const record = parsed as Record<string, unknown>;
+          rows = [['Campo', 'Valor'], ...Object.entries(record).map(([key, value]) => [key, normalizeCell(value)])];
+        }
+      } catch {
+        const tableLines = liveArtifact.content.split(/\r?\n/).filter((line) => line.includes('|'));
+        if (tableLines.length >= 2) {
+          rows = tableLines
+            .filter((line) => !/^\s*\|?[\s:|-]+\|?\s*$/.test(line))
+            .map((line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()));
+        } else if (/\.(csv|tsv)$/i.test(liveArtifact.path)) {
+          const parsed = XLSX.read(liveArtifact.content, { type: 'string', raw: true });
+          const sheet = parsed.Sheets[parsed.SheetNames[0]];
+          rows = sheet ? XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }).map((row) => (row as unknown[]).map(normalizeCell)) : [];
+        }
+      }
+      if (!rows.length) rows = [['Contenido'], ...liveArtifact.content.split(/\r?\n/).filter(Boolean).map((line) => [line])];
+      worksheet.addRows(rows);
+      const header = worksheet.getRow(1);
+      header.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6D28D9' } };
+      worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+      worksheet.columns.forEach((column) => {
+        column.width = Math.min(42, Math.max(12, ...(column.values ?? []).map((value) => String(value ?? '').length + 2)));
+      });
+      const buffer = await workbook.xlsx.writeBuffer();
+      const filename = (liveArtifact.path.split('/').pop() ?? 'yosseling-artifact').replace(/\.[^/.]+$/, '') + '.xlsx';
+      downloadBlob(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
+      setExportStatus(language === 'en' ? 'XLSX spreadsheet exported successfully.' : 'Hoja XLSX exportada correctamente.');
+    } catch (error) {
+      console.error('[Export XLSX] Error:', error);
+      setExportStatus(error instanceof Error
+        ? language === 'en' ? `Could not export XLSX: ${error.message}` : `No se pudo exportar XLSX: ${error.message}`
+        : language === 'en' ? 'Could not export XLSX.' : 'No se pudo exportar XLSX.');
+    }
   };
 
   const handleExportHtml = () => {
     if (!liveArtifact) return;
     const blob = new Blob([previewDoc], { type: 'text/html;charset=utf-8' });
     downloadBlob(blob, (liveArtifact.path.split('/').pop() ?? 'yosseling-artifact') + '.html');
+  };
+
+  const handleExportProjectZip = async () => {
+    if (!workspaceFiles.length) return;
+    setExportStatus('');
+    try {
+      const archive = new JSZip();
+      workspaceFiles.forEach((file) => {
+        if (file.binaryData) {
+          const raw = atob(file.binaryData);
+          archive.file(file.path, Uint8Array.from(raw, (character) => character.charCodeAt(0)));
+        } else {
+          archive.file(file.path, file.content);
+        }
+      });
+      const blob = await archive.generateAsync({ type: 'blob' });
+      downloadBlob(blob, 'yosseling-project.zip');
+      setExportStatus(language === 'en'
+        ? `${workspaceFiles.length} files exported to ZIP.`
+        : `${workspaceFiles.length} archivos exportados en ZIP.`);
+    } catch (error) {
+      console.error('[Export ZIP] Error:', error);
+      setExportStatus(error instanceof Error
+        ? language === 'en' ? `Could not export project: ${error.message}` : `No se pudo exportar el proyecto: ${error.message}`
+        : language === 'en' ? 'Could not export project.' : 'No se pudo exportar el proyecto.');
+    }
   };
 
   const handleExportPptx = async () => {
@@ -1500,17 +1734,19 @@ export function WorkspaceCanvas({
 
       const sections = liveArtifact.content.split(/(?=^#\s+)/m).filter(Boolean);
       if (sections.length === 0) sections.push(liveArtifact.content);
+      const isNumberedSlideDeck = sections.every((section) => /^#\s*(?:(?:slide|diapositiva)\s*)?\d+\b/im.test(section.trim()));
 
-      // Slide de título
-      const titleSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
-      titleSlide.addText(liveArtifact.name || 'Presentación Yosseling', {
-        x: 1.0, y: 2.2, w: '80%', h: 1.5,
-        fontSize: 36, color: 'FFFFFF', bold: true, align: 'left'
-      });
-      titleSlide.addText('Generado automáticamente con IA', {
-        x: 1.0, y: 3.8, w: '80%', h: 0.8,
-        fontSize: 16, color: 'd4d4d8', align: 'left'
-      });
+      if (!isNumberedSlideDeck) {
+        const titleSlide = pptx.addSlide({ masterName: 'MASTER_SLIDE' });
+        titleSlide.addText(liveArtifact.name || 'Presentación Yosseling', {
+          x: 1.0, y: 2.2, w: '80%', h: 1.5,
+          fontSize: 36, color: 'FFFFFF', bold: true, align: 'left'
+        });
+        titleSlide.addText('Generado automáticamente con IA', {
+          x: 1.0, y: 3.8, w: '80%', h: 0.8,
+          fontSize: 16, color: 'd4d4d8', align: 'left'
+        });
+      }
 
       // Slides de contenido
       sections.forEach((sec) => {
@@ -1534,8 +1770,14 @@ export function WorkspaceCanvas({
 
       const fileName = (liveArtifact.path.split('/').pop() ?? 'presentacion').replace(/\.[^/.]+$/, '') + '.pptx';
       await pptx.writeFile({ fileName });
+      setExportStatus(language === 'en'
+        ? `PPTX exported (${sections.length + (isNumberedSlideDeck ? 0 : 1)} slides).`
+        : `Presentación PPTX exportada (${sections.length + (isNumberedSlideDeck ? 0 : 1)} diapositivas).`);
     } catch (err) {
       console.error('[Export PPTX] Error:', err);
+      setExportStatus(err instanceof Error
+        ? language === 'en' ? `Could not export PPTX: ${err.message}` : `No se pudo exportar PPTX: ${err.message}`
+        : language === 'en' ? 'Could not export PPTX.' : 'No se pudo exportar PPTX.');
     }
   };
 
@@ -1586,7 +1828,7 @@ export function WorkspaceCanvas({
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-sm font-bold text-violet-300">Y</div>
             <div className="hidden min-w-0 sm:block">
-              <p className="text-[9px] leading-3 text-slate-500">Project Name</p>
+              <p className="text-[9px] leading-3 text-slate-500">{translate(language, 'workspace.project')}</p>
               <p className="truncate text-[11px] font-medium text-slate-200">{githubRepo ? `${githubRepo.owner}/${githubRepo.repository}` : 'Nuevo proyecto'}</p>
             </div>
             <button
@@ -1594,10 +1836,10 @@ export function WorkspaceCanvas({
               onClick={onToggleChat}
               disabled={!onToggleChat}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
-              aria-label={isChatCollapsed ? 'Mostrar chat' : 'Collapse Chat'}
+              aria-label={translate(language, isChatCollapsed ? 'workspace.showChat' : 'workspace.collapseChat')}
             >
               {isChatCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
-              <span className="hidden xl:inline">{isChatCollapsed ? 'Show Chat' : 'Collapse Chat'}</span>
+              <span className="hidden xl:inline">{translate(language, isChatCollapsed ? 'workspace.showChat' : 'workspace.collapseChat')}</span>
             </button>
           </div>
           <nav className="flex items-center rounded-md border border-white/[0.07] bg-[#101116] p-0.5" aria-label="Workspace view">
@@ -1611,7 +1853,7 @@ export function WorkspaceCanvas({
                   workspacePanelTab === tab.key ? 'bg-[#292a34] text-white' : 'text-slate-400 hover:text-white',
                 )}
               >
-                {tab.key === 'preview' ? 'Live Preview' : 'Code / Edit'}
+                {translate(language, tab.key === 'preview' ? 'workspace.preview' : 'workspace.code')}
               </button>
             ))}
           </nav>
@@ -1622,7 +1864,7 @@ export function WorkspaceCanvas({
               disabled={githubBusy}
               className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.06] lg:inline-flex"
             >
-              <RefreshCw size={12} className={githubBusy ? 'animate-spin' : ''} /> Git Sync
+              <RefreshCw size={12} className={githubBusy ? 'animate-spin' : ''} /> {translate(language, 'workspace.gitSync')}
             </button>
             <button
               type="button"
@@ -1630,7 +1872,7 @@ export function WorkspaceCanvas({
               disabled={githubBusy}
               className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.06] xl:inline-flex"
             >
-              <Github size={12} /> Git Repository
+              <Github size={12} /> {translate(language, 'workspace.repository')}
             </button>
             <button
               type="button"
@@ -1638,7 +1880,7 @@ export function WorkspaceCanvas({
               disabled={githubBusy}
               className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.06]"
             >
-              <Share2 size={12} /><span className="hidden md:inline">Share</span>
+              <Share2 size={12} /><span className="hidden md:inline">{translate(language, 'workspace.share')}</span>
             </button>
             {!collaboration && (
               <button
@@ -1652,7 +1894,7 @@ export function WorkspaceCanvas({
               </button>
             )}
             <button type="button" onClick={() => setWorkspacePanelTab('exports')} className="hidden rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/[0.06] sm:inline-flex">
-              Export
+              {translate(language, 'workspace.export')}
             </button>
             <button
               type="button"
@@ -1661,7 +1903,16 @@ export function WorkspaceCanvas({
               className="hidden items-center gap-1.5 rounded-md border border-violet-400/25 bg-violet-400/10 px-2 py-1.5 text-[10px] text-violet-100 hover:bg-violet-400/20 md:inline-flex disabled:opacity-50"
             >
               {isFullIdeMode ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-              {isFullIdeMode ? 'Exit IDE' : 'Full IDE Mode'}
+              {translate(language, isFullIdeMode ? 'workspace.exitIde' : 'workspace.fullIde')}
+            </button>
+            <button
+              type="button"
+              onClick={() => updateSettings({ language: language === 'es' ? 'en' : 'es' })}
+              aria-label={translate(language, 'header.language')}
+              title={translate(language, 'header.language')}
+              className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+            >
+              {language.toUpperCase()}
             </button>
             <button
               type="button"
@@ -1791,7 +2042,7 @@ export function WorkspaceCanvas({
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-sm font-bold text-violet-300">Y</div>
           <div className="hidden min-w-0 sm:block">
-            <p className="text-[9px] leading-3 text-slate-500">Project Name</p>
+            <p className="text-[9px] leading-3 text-slate-500">{translate(language, 'workspace.project')}</p>
             <p className="max-w-48 truncate text-[11px] font-medium text-slate-200">
               {githubRepo ? `${githubRepo.owner}/${githubRepo.repository}` : liveArtifact.name}
             </p>
@@ -1801,11 +2052,11 @@ export function WorkspaceCanvas({
             onClick={onToggleChat}
             disabled={!onToggleChat}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
-            aria-label={isChatCollapsed ? 'Mostrar chat' : 'Collapse Chat'}
-            title={isChatCollapsed ? 'Mostrar chat' : 'Collapse Chat'}
+            aria-label={translate(language, isChatCollapsed ? 'workspace.showChat' : 'workspace.collapseChat')}
+            title={translate(language, isChatCollapsed ? 'workspace.showChat' : 'workspace.collapseChat')}
           >
             {isChatCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
-            <span className="hidden xl:inline">{isChatCollapsed ? 'Show Chat' : 'Collapse Chat'}</span>
+            <span className="hidden xl:inline">{translate(language, isChatCollapsed ? 'workspace.showChat' : 'workspace.collapseChat')}</span>
           </button>
         </div>
 
@@ -1822,7 +2073,7 @@ export function WorkspaceCanvas({
                   : 'text-slate-400 hover:text-white',
               )}
             >
-              {tab.key === 'preview' ? 'Live Preview' : 'Code / Edit'}
+              {translate(language, tab.key === 'preview' ? 'workspace.preview' : 'workspace.code')}
             </button>
           ))}
         </nav>
@@ -1836,7 +2087,7 @@ export function WorkspaceCanvas({
             title={githubRepo ? `Sincronizar ${githubRepo.owner}/${githubRepo.repository}` : 'Sincronizar con GitHub'}
           >
             <RefreshCw size={12} className={githubBusy ? 'animate-spin' : ''} />
-            {githubBusy ? 'Syncing…' : 'Git Sync'}
+            {githubBusy ? 'Syncing…' : translate(language, 'workspace.gitSync')}
           </button>
           <button
             type="button"
@@ -1844,7 +2095,7 @@ export function WorkspaceCanvas({
             disabled={githubBusy}
             className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50 xl:inline-flex"
           >
-            <Github size={12} /> Git Repository
+            <Github size={12} /> {translate(language, 'workspace.repository')}
           </button>
           <button
             type="button"
@@ -1853,14 +2104,14 @@ export function WorkspaceCanvas({
             className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
             title="Compartir proyecto"
           >
-            <Share2 size={12} /><span className="hidden md:inline">Share</span>
+            <Share2 size={12} /><span className="hidden md:inline">{translate(language, 'workspace.share')}</span>
           </button>
           <button
             type="button"
             onClick={() => setWorkspacePanelTab('exports')}
             className="hidden items-center gap-1.5 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white sm:inline-flex"
           >
-            <Download size={12} /> Export
+            <Download size={12} /> {translate(language, 'workspace.export')}
           </button>
           <button
             type="button"
@@ -1870,7 +2121,16 @@ export function WorkspaceCanvas({
             aria-pressed={isFullIdeMode}
           >
             {isFullIdeMode ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-            {isFullIdeMode ? 'Exit IDE' : 'Full IDE Mode'}
+            {translate(language, isFullIdeMode ? 'workspace.exitIde' : 'workspace.fullIde')}
+          </button>
+          <button
+            type="button"
+            onClick={() => updateSettings({ language: language === 'es' ? 'en' : 'es' })}
+            aria-label={translate(language, 'header.language')}
+            title={translate(language, 'header.language')}
+            className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] px-2 py-1.5 text-[10px] text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+          >
+            {language.toUpperCase()}
           </button>
           <button
             type="button"
@@ -1967,8 +2227,28 @@ export function WorkspaceCanvas({
               </div>
 
               <div className="min-h-0 flex-1 overflow-hidden">
-                {workspaceFiles.some((file) => file.path.replace(/\\/g, '/') === 'package.json') ? (
+                {selectedWorkspaceFile?.binaryData ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#0a0a0c] p-6 text-center">
+                    <FileText className="h-10 w-10 text-violet-300" />
+                    <div>
+                      <h2 className="text-sm font-semibold text-white">{selectedWorkspaceFile.path.split('/').pop()}</h2>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {language === 'en' ? 'Generated office file' : 'Archivo de ofimática generado'}
+                        {' · '}{Math.max(1, Math.round(selectedWorkspaceFile.binaryData.length * 0.75 / 1024))} KB
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadWorkspaceFile(selectedWorkspaceFile)}
+                      className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-violet-500"
+                    >
+                      <Download size={14} />
+                      {language === 'en' ? 'Download file' : 'Descargar archivo'}
+                    </button>
+                  </div>
+                ) : workspaceFiles.some((file) => file.path.replace(/\\/g, '/') === 'package.json') ? (
                   <WebContainerRunner
+                    key={workspaceFiles.find((file) => file.path.replace(/\\/g, '/') === 'package.json')?.id ?? workspaceFiles[0]?.id}
                     files={workspaceFiles}
                     projectName={githubRepo ? `${githubRepo.owner}/${githubRepo.repository}` : liveArtifact.name}
                   />
@@ -2055,7 +2335,22 @@ export function WorkspaceCanvas({
                   ))}
                 </div>
                 <div className="relative min-h-0 flex-1 overflow-hidden">
-                  <CodeEditor readOnly={false} inputRef={textareaRef} onSelection={handleSelection} />
+                  {selectedWorkspaceFile?.binaryData ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+                      <FileText className="h-10 w-10 text-violet-300" />
+                      <p className="text-xs text-slate-300">{selectedWorkspaceFile.path.split('/').pop()}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadWorkspaceFile(selectedWorkspaceFile)}
+                        className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-violet-500"
+                      >
+                        <Download size={14} />
+                        {language === 'en' ? 'Download generated file' : 'Descargar archivo generado'}
+                      </button>
+                    </div>
+                  ) : (
+                    <CodeEditor readOnly={false} inputRef={textareaRef} onSelection={handleSelection} />
+                  )}
                   {ghostMenu.visible && (
                     <div
                       className="absolute z-20 flex gap-1 rounded-lg border border-white/10 bg-[#17171e] p-1 shadow-xl"
@@ -2105,6 +2400,7 @@ export function WorkspaceCanvas({
                 <div className="min-h-0 flex-1 overflow-hidden bg-white">
                   {workspaceFiles.some((file) => file.path.replace(/\\/g, '/') === 'package.json') ? (
                     <WebContainerRunner
+                      key={workspaceFiles.find((file) => file.path.replace(/\\/g, '/') === 'package.json')?.id ?? workspaceFiles[0]?.id}
                       files={workspaceFiles}
                       projectName={githubRepo ? `${githubRepo.owner}/${githubRepo.repository}` : liveArtifact.name}
                     />
@@ -2143,11 +2439,12 @@ export function WorkspaceCanvas({
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-purple-300">
                   <FileText className="h-3.5 w-3.5" />
-                  Exportar
+                  {translate(language, 'workspace.exportTitle')}
                 </div>
                 <p className="mb-4 text-sm text-slate-400">
-                  Copia o descarga el contenido actual del artefacto activo.
+                  {translate(language, 'workspace.exportDescription')}
                 </p>
+                {exportStatus && <p role="status" className="mb-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">{exportStatus}</p>}
 
                 <div className="space-y-2">
                   <button
@@ -2156,7 +2453,7 @@ export function WorkspaceCanvas({
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/10 px-4 py-2.5 text-sm font-medium text-purple-100 transition hover:bg-purple-500/20"
                   >
                     <Copy className="h-4 w-4" />
-                    {copied ? 'Copiado' : 'Copiar contenido'}
+                    {translate(language, copied ? 'workspace.copied' : 'workspace.copy')}
                   </button>
                   <button
                     type="button"
@@ -2164,15 +2461,23 @@ export function WorkspaceCanvas({
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
                   >
                     <Download className="h-4 w-4" />
-                    Exportar PDF
+                    {translate(language, 'workspace.exportPdf')}
                   </button>
                   <button
                     type="button"
-                    onClick={handleExportDocx}
+                    onClick={() => void handleExportDocx()}
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
                   >
                     <Download className="h-4 w-4" />
-                    Exportar Word
+                    {translate(language, 'workspace.exportDocx')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportXlsx()}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
+                  >
+                    <Download className="h-4 w-4" />
+                    {translate(language, 'workspace.exportXlsx')}
                   </button>
                   <button
                     type="button"
@@ -2180,7 +2485,7 @@ export function WorkspaceCanvas({
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
                   >
                     <Download className="h-4 w-4" />
-                    Exportar HTML
+                    {translate(language, 'workspace.exportHtml')}
                   </button>
                   <button
                     type="button"
@@ -2188,7 +2493,7 @@ export function WorkspaceCanvas({
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
                   >
                     <Download className="h-4 w-4" />
-                    Exportar PowerPoint
+                    {translate(language, 'workspace.exportPptx')}
                   </button>
                   <button
                     type="button"
@@ -2196,7 +2501,15 @@ export function WorkspaceCanvas({
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
                   >
                     <Download className="h-4 w-4" />
-                    Descargar archivo
+                    {translate(language, 'workspace.downloadFile')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportProjectZip()}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
+                  >
+                    <Download className="h-4 w-4" />
+                    {translate(language, 'workspace.downloadZip')}
                   </button>
                 </div>
               </div>
