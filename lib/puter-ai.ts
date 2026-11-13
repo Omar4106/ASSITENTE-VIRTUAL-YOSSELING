@@ -49,7 +49,7 @@ export interface PuterImageResult {
  * @example Generación simple (txt2img):
  * ```ts
  * const result = await generateYosselingImage('un atardecer tropical con tonos violeta');
- * // result.url contiene la imagen generada
+ * // result?.url contiene la imagen generada
  * ```
  *
  * @example Imagen a imagen:
@@ -103,7 +103,7 @@ export async function generateYosselingImage(
     const generationTimeMs = Date.now() - startTime;
 
     return results.filter(Boolean).map(result => ({
-      url: result.url ?? '',
+      url: result?.url ?? '',
       model,
       generationTimeMs,
     }));
